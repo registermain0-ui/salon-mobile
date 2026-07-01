@@ -157,6 +157,31 @@
   .form-foot .del{flex:none;border:1px solid #d32f2f;color:#d32f2f;background:#fff;border-radius:8px;padding:12px 16px;font-size:14px}
   .form-foot .save{flex:1;border:none;background:var(--accent);color:#fff;border-radius:8px;padding:12px;font-size:16px;font-weight:700}
 
+  /* レポート */
+  .rep-date{display:flex;gap:8px;align-items:center}
+  .rep-types{display:flex;gap:20px;align-items:center;margin-bottom:12px;font-size:15px}
+  .rep-types label{display:flex;align-items:center;gap:6px}
+  .rep-types input{width:22px;height:22px}
+  .rep-count{margin-left:auto;color:var(--sub);font-size:14px}
+  .rep-build{display:block;width:100%;border:none;background:var(--accent);color:#fff;border-radius:8px;padding:13px;font-size:16px;font-weight:700;margin-bottom:8px}
+  .rep-status{font-size:12px;color:var(--sub);margin-bottom:8px}
+  .rep-out{width:100%;height:52vh;border:1px solid #bbb;border-radius:8px;padding:10px;font-size:13px;line-height:1.6;resize:none;font-family:ui-monospace,monospace}
+
+  /* セラピスト管理 */
+  .tm-list{max-height:200px;overflow-y:auto;border:1px solid #ddd;border-radius:8px}
+  .tm-item{padding:10px 12px;border-bottom:1px solid #eee;font-size:14px}
+  .tm-item:last-child{border-bottom:none}
+  .tm-item.sel{background:#eef4ff}
+  .tm-item small{display:block;color:var(--sub);font-size:11px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tm-empty{padding:18px;text-align:center;color:var(--sub);font-size:13px}
+  .tm-hr{border:none;border-top:1px solid #ddd;margin:14px 0}
+  .tm-ta{width:100%;height:64px;border:1px solid #bbb;border-radius:8px;padding:10px;font-size:15px;resize:none}
+  .tm-btns{display:flex;gap:8px;margin-top:4px;padding-bottom:24px}
+  .tm-main{flex:1;border:none;background:var(--accent);color:#fff;border-radius:8px;padding:12px;font-size:15px;font-weight:700}
+  .tm-sub{flex:1;border:1px solid #bbb;background:#fff;border-radius:8px;padding:12px;font-size:14px}
+  .tm-danger{flex:1;border:1px solid #d32f2f;color:#d32f2f;background:#fff;border-radius:8px;padding:12px;font-size:14px}
+  .tm-sub:disabled,.tm-danger:disabled{opacity:.4}
+
   /* トースト */
   #toast{position:fixed;left:50%;bottom:80px;transform:translateX(-50%) translateY(20px);background:rgba(30,30,30,.9);color:#fff;font-size:13px;padding:10px 18px;border-radius:20px;opacity:0;pointer-events:none;transition:.25s;z-index:50}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -234,8 +259,10 @@
 <!-- メニュー(データ移行)シート -->
 <div class="sheet" id="menuSheet">
   <div class="grip"></div>
-  <h2>データ<button class="sheet-close">×</button></h2>
+  <h2>メニュー<button class="sheet-close">×</button></h2>
   <div class="menu-body">
+    <button id="openReport">レポート</button>
+    <button id="openTherapistMgmt">セラピスト管理</button>
     <button id="expData">エクスポート(バックアップ保存)</button>
     <button id="impData">インポート(バックアップ読込)</button>
     <input type="file" id="impFile" accept="application/json" style="display:none">
@@ -315,6 +342,63 @@
   <div class="form-foot">
     <button class="del" id="fDelete">削除</button>
     <button class="save" id="fSave">登録</button>
+  </div>
+</div>
+
+<!-- レポート(全画面) -->
+<div class="form-page" id="repPage">
+  <div class="form-head">
+    <button class="back" id="repBack">‹ 戻る</button>
+    <h2>レポート</h2>
+  </div>
+  <div class="form-body">
+    <div class="fg"><label>日付</label>
+      <div class="rep-date">
+        <button class="arrow" id="repPrev">‹</button>
+        <button class="date-btn" id="repDateLabel">----/--/--</button>
+        <button class="arrow" id="repNext">›</button>
+      </div>
+    </div>
+    <div class="rep-types">
+      <label><input type="checkbox" id="repA" checked>Type A</label>
+      <label><input type="checkbox" id="repB" checked>Type B</label>
+      <span class="rep-count" id="repCount">0件</span>
+    </div>
+    <button class="rep-build" id="repBuild">生成してコピー</button>
+    <div class="rep-status" id="repStatus">日付とTypeを選択して「生成してコピー」を押してください。</div>
+    <textarea class="rep-out" id="repOut" readonly></textarea>
+  </div>
+</div>
+
+<!-- セラピスト管理(全画面) -->
+<div class="form-page" id="tmPage">
+  <div class="form-head">
+    <button class="back" id="tmBack">‹ 戻る</button>
+    <h2>セラピスト管理</h2>
+  </div>
+  <div class="form-body">
+    <div class="fg"><input id="tmFilter" placeholder="名前で検索"></div>
+    <div class="tm-list" id="tmList"></div>
+    <hr class="tm-hr">
+    <div class="fg"><label>セラピスト名 (必須)</label><input id="tmName"></div>
+    <div class="fg-row">
+      <div class="fg"><label>顔</label><select id="tmFace"></select></div>
+      <div class="fg"><label>体</label><select id="tmBody"></select></div>
+      <div class="fg"><label>寛</label><select id="tmKan"></select></div>
+    </div>
+    <div class="fg-row">
+      <div class="fg"><label>指名料</label><select id="tmFee"><option>1000円</option><option>2000円</option></select></div>
+      <div class="fg"><label>コース上限</label><select id="tmMax"><option>60分</option><option>80分</option><option>100分</option><option selected>120分</option></select></div>
+      <div class="fg"><label>インターバル(分)</label><input id="tmInterval" inputmode="numeric" placeholder="20"></div>
+    </div>
+    <div class="fg"><label>注意点(予約画面に赤文字表示)</label><textarea id="tmCaution" class="tm-ta"></textarea></div>
+    <div class="fg"><label>メモ(自動生成)</label><input id="tmMemo" readonly></div>
+    <div class="tm-btns">
+      <button id="tmAdd" class="tm-main">追加</button>
+      <button id="tmUpdate" class="tm-sub" disabled>更新</button>
+      <button id="tmDelete" class="tm-danger" disabled>削除</button>
+      <button id="tmClear" class="tm-sub">クリア</button>
+    </div>
   </div>
 </div>
 

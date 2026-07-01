@@ -255,12 +255,85 @@ function holdCellsToRanges(cols) {
   return out;
 }
 
+/* レポート1行(PC: ReportBuilder.FormatLine 移植) */
+function reportFormatLine(r) {
+  const start = fmtBiz(r.start);
+  let dur = `${r.courseMinutes}分`;
+  if ((r.extensionMinutes || 0) > 0) dur += `+${r.extensionMinutes}分`;
+  const cust = (r.customer || "").trim();
+  const last4 = (r.phoneLast4 || "").trim();
+  const attr = (r.customerAttr || "").trim();
+  const nom = (r.nominationType || "").trim();
+  let attrNom = "";
+  if (attr !== "" || nom !== "") attrNom = ` ${attr}/${nom} `;
+  let opt = "";
+  // 2000円以上の割引のみ表示(例: ［2000割］)。PAYPAYは［PAY］
+  if ((r.discountAmount || 0) >= 2000) opt += `［${r.discountAmount}割］`;
+  if ((r.paymentType || "").trim().toUpperCase() === "PAYPAY") opt += "［PAY］";
+  return `${start}～${dur}${attrNom}${cust}様${last4}${opt}`;
+}
+
+/* レポート全体(PC: ReportBuilder.Build 移植)
+ * items: 予約配列(therapistName付与済み) → {text, count} */
+function buildReport(items, includeA, includeB) {
+  const filtered = items.filter(r =>
+    (r.type === "A" && includeA) || (r.type === "B" && includeB));
+  const groups = new Map();
+  for (const r of filtered) {
+    const key = (r.therapistName || "").trim();
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(r);
+  }
+  const keys = [...groups.keys()].sort(); // Ordinal(コードポイント順)
+  const lines = [];
+  let first = true;
+  for (const k of keys) {
+    if (!first) lines.push("");
+    first = false;
+    lines.push(`★${k}`);
+    for (const r of groups.get(k).sort((a, b) => a.start - b.start)) {
+      lines.push(reportFormatLine(r));
+    }
+  }
+  return { text: lines.join("\n"), count: filtered.length };
+}
+
+/* セラピスト検索(PC: FilterPredicate 移植: 部分一致 or 編集距離<=2) */
+function levenshtein(a, b) {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const dp = Array.from({ length: a.length + 1 }, () => new Array(b.length + 1).fill(0));
+  for (let i = 0; i <= a.length; i++) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++)
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + cost);
+    }
+  return dp[a.length][b.length];
+}
+function therapistMatches(name, query) {
+  const q = (query || "").trim();
+  if (q === "") return true;
+  const n = (name || "").trim();
+  if (n === "") return false;
+  if (n.toLowerCase().includes(q.toLowerCase())) return true;
+  return levenshtein(n.toLowerCase(), q.toLowerCase()) <= 2;
+}
+
+/* メモ自動生成(PC: BuildMemo 移植) 顔:{}/体:{}/寛:{}/{指名料}/[{注意点}] */
+function buildTherapistMemo(face, body, kan, fee, caution) {
+  const c = (caution || "").trim();
+  return `顔:${face}/体:${body}/寛:${kan}/${fee}/[${c}]`;
+}
+
 /* ================= Node テスト用エクスポート ================= */
 if (typeof module !== "undefined") {
   module.exports = {
     parseBizTime, fmtBiz, fmtNormal, getBusinessDate, mapNowToBizMin, defaultBaseMin,
     parseIntervalMinutes, tryFindEarliestSlot, maxText, sanName, padName,
-    calcEnd, calcTotal, findOverlaps, isOverShiftEnd, holdCellsToRanges, normAttendance
+    calcEnd, calcTotal, findOverlaps, isOverShiftEnd, holdCellsToRanges, normAttendance,
+    reportFormatLine, buildReport, levenshtein, therapistMatches, buildTherapistMemo
   };
 }
 if (typeof window === "undefined") {
@@ -295,13 +368,14 @@ const K = {
 };
 
 function loadTherapists() { return LS.get(K.therapists, []); }
-function saveTherapists(list) { LS.set(K.therapists, list); }
+function touchMeta(key) { LS.set("este.meta." + key, Date.now()); }
+function saveTherapists(list) { LS.set(K.therapists, list); touchMeta(K.therapists); }
 function loadAttendance(d) { return LS.get(K.attendance(d), []); }
-function saveAttendance(d, list) { LS.set(K.attendance(d), list); }
+function saveAttendance(d, list) { LS.set(K.attendance(d), list); touchMeta(K.attendance(d)); }
 function loadReservations(d) { return LS.get(K.reservations(d), []); }
-function saveReservations(d, list) { LS.set(K.reservations(d), list); }
+function saveReservations(d, list) { LS.set(K.reservations(d), list); touchMeta(K.reservations(d)); }
 function loadHolds(d) { return LS.get(K.holds(d), []); }
-function saveHolds(d, list) { LS.set(K.holds(d), list); }
+function saveHolds(d, list) { LS.set(K.holds(d), list); touchMeta(K.holds(d)); }
 function loadSendQueue() { return LS.get(K.sendQueue, {}); }
 function saveSendQueue(q) { LS.set(K.sendQueue, q); }
 function loadPrices() {
@@ -1090,6 +1164,197 @@ document.getElementById("cauSave").addEventListener("click", () => {
   }
   closeSheets();
 });
+
+/* ================= レポート ================= */
+const repPage = document.getElementById("repPage");
+let repDateKey = null;
+document.getElementById("openReport").addEventListener("click", () => {
+  closeSheets();
+  repDateKey = state.dateKey;
+  document.getElementById("repDateLabel").textContent = fmtDateLabel(repDateKey);
+  document.getElementById("repOut").value = "";
+  document.getElementById("repCount").textContent = "0件";
+  document.getElementById("repStatus").textContent = "日付とTypeを選択して「生成してコピー」を押してください。";
+  repPage.classList.add("open");
+});
+document.getElementById("repBack").addEventListener("click", () => repPage.classList.remove("open"));
+function repShift(days) {
+  const d = dateKeyToDate(repDateKey);
+  d.setDate(d.getDate() + days);
+  repDateKey = toDateKey(d);
+  document.getElementById("repDateLabel").textContent = fmtDateLabel(repDateKey);
+}
+document.getElementById("repPrev").addEventListener("click", () => repShift(-1));
+document.getElementById("repNext").addEventListener("click", () => repShift(1));
+document.getElementById("repBuild").addEventListener("click", async () => {
+  const incA = document.getElementById("repA").checked;
+  const incB = document.getElementById("repB").checked;
+  const status = document.getElementById("repStatus");
+  if (!incA && !incB) {
+    document.getElementById("repOut").value = "";
+    status.textContent = "Type A / Type B のどちらかを選択してください。";
+    return;
+  }
+  const items = loadReservations(repDateKey).map(r => {
+    const t = state.therapists.find(x => x.id === r.therapistId);
+    return { ...r, therapistName: t ? t.name : "" };
+  });
+  const { text, count } = buildReport(items, incA, incB);
+  document.getElementById("repOut").value = text;
+  document.getElementById("repCount").textContent = `${count}件`;
+  if (!text.trim()) { status.textContent = "該当データがありません。"; return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    status.textContent = `コピーしました（${repDateKey}）。`;
+  } catch {
+    status.textContent = "生成しました。長押しでコピーしてください。";
+  }
+});
+
+/* ================= セラピスト管理 ================= */
+const tmPage = document.getElementById("tmPage");
+const RATING_OPTIONS = ["", "◎", "〇", "△", "ー", "✖"];
+let tmSelectedId = null;
+
+for (const id of ["tmFace", "tmBody", "tmKan"]) {
+  document.getElementById(id).innerHTML =
+    RATING_OPTIONS.map(v => `<option value="${v}">${v}</option>`).join("");
+}
+document.getElementById("openTherapistMgmt").addEventListener("click", () => {
+  closeSheets();
+  document.getElementById("tmFilter").value = "";
+  tmClearForm();
+  renderTmList();
+  tmPage.classList.add("open");
+});
+document.getElementById("tmBack").addEventListener("click", () => {
+  tmPage.classList.remove("open");
+  render(); // 名前・注意点等の変更をタイムテーブルへ反映
+});
+document.getElementById("tmFilter").addEventListener("input", renderTmList);
+
+function renderTmList() {
+  const q = document.getElementById("tmFilter").value;
+  const list = state.therapists
+    .filter(t => therapistMatches(t.name, q))
+    .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase(), "ja"));
+  const el = document.getElementById("tmList");
+  if (list.length === 0) {
+    el.innerHTML = `<div class="tm-empty">該当するセラピストがいません。</div>`;
+    return;
+  }
+  el.innerHTML = "";
+  for (const t of list) {
+    const d = document.createElement("div");
+    d.className = "tm-item" + (t.id === tmSelectedId ? " sel" : "");
+    d.innerHTML = `<b>${esc(t.name)}</b><small>${esc(t.memo || "")}</small>`;
+    d.addEventListener("click", () => { tmSelect(t.id); });
+    el.appendChild(d);
+  }
+}
+function tmSelect(id) {
+  const t = state.therapists.find(x => x.id === id);
+  if (!t) return;
+  tmSelectedId = id;
+  document.getElementById("tmName").value = t.name;
+  document.getElementById("tmFace").value = RATING_OPTIONS.includes(t.face || "") ? (t.face || "") : "";
+  document.getElementById("tmBody").value = RATING_OPTIONS.includes(t.body || "") ? (t.body || "") : "";
+  document.getElementById("tmKan").value = RATING_OPTIONS.includes(t.kan || "") ? (t.kan || "") : "";
+  document.getElementById("tmFee").value = t.nominationFee === 2000 ? "2000円" : "1000円";
+  document.getElementById("tmMax").value =
+    t.maxCourse === 60 ? "60分" : t.maxCourse === 80 ? "80分" : t.maxCourse === 100 ? "100分" : "120分";
+  document.getElementById("tmCaution").value = t.caution || "";
+  document.getElementById("tmInterval").value = t.interval != null && String(t.interval).trim() !== "" ? String(t.interval) : "";
+  document.getElementById("tmUpdate").disabled = false;
+  document.getElementById("tmDelete").disabled = false;
+  tmUpdateMemoPreview();
+  renderTmList();
+}
+function tmClearForm() {
+  tmSelectedId = null;
+  document.getElementById("tmName").value = "";
+  document.getElementById("tmFace").value = "";
+  document.getElementById("tmBody").value = "";
+  document.getElementById("tmKan").value = "";
+  document.getElementById("tmFee").value = "1000円";
+  document.getElementById("tmMax").value = "120分";
+  document.getElementById("tmCaution").value = "";
+  document.getElementById("tmInterval").value = "";
+  document.getElementById("tmUpdate").disabled = true;
+  document.getElementById("tmDelete").disabled = true;
+  tmUpdateMemoPreview();
+  renderTmList();
+}
+function tmUpdateMemoPreview() {
+  const fee = document.getElementById("tmFee").value.includes("2000") ? 2000 : 1000;
+  document.getElementById("tmMemo").value = buildTherapistMemo(
+    document.getElementById("tmFace").value,
+    document.getElementById("tmBody").value,
+    document.getElementById("tmKan").value,
+    fee,
+    document.getElementById("tmCaution").value);
+}
+for (const id of ["tmFace", "tmBody", "tmKan", "tmFee", "tmCaution"]) {
+  document.getElementById(id).addEventListener("input", tmUpdateMemoPreview);
+  document.getElementById(id).addEventListener("change", tmUpdateMemoPreview);
+}
+document.getElementById("tmInterval").addEventListener("input", e => {
+  e.target.value = e.target.value.replace(/[^0-9]/g, ""); // 数字のみ(PC版準拠)
+});
+function tmBuildFromForm() {
+  const name = document.getElementById("tmName").value.trim();
+  if (!name) { alert("セラピスト名は必須です。"); return null; }
+  const face = document.getElementById("tmFace").value;
+  const body = document.getElementById("tmBody").value;
+  const kan = document.getElementById("tmKan").value;
+  const fee = document.getElementById("tmFee").value.includes("2000") ? 2000 : 1000;
+  const maxText = document.getElementById("tmMax").value;
+  const maxCourse = maxText.includes("60") ? 60 : maxText.includes("80") ? 80 : maxText.includes("100") ? 100 : 120;
+  const caution = document.getElementById("tmCaution").value.trim();
+  const ivText = document.getElementById("tmInterval").value.trim();
+  let interval = "";
+  if (ivText !== "") {
+    const v = parseInt(ivText, 10);
+    if (isNaN(v)) { alert("インターバルは数字のみです。"); return null; }
+    interval = String(v);
+  }
+  return {
+    name, face, body, kan,
+    nominationFee: fee, maxCourse, caution, interval,
+    memo: buildTherapistMemo(face, body, kan, fee, caution)
+  };
+}
+document.getElementById("tmAdd").addEventListener("click", () => {
+  const t = tmBuildFromForm();
+  if (!t) return;
+  t.id = nextTherapistId();
+  state.therapists.push(t);
+  saveTherapists(state.therapists);
+  tmClearForm();
+  toast("追加しました");
+});
+document.getElementById("tmUpdate").addEventListener("click", () => {
+  if (tmSelectedId == null) return;
+  const t = tmBuildFromForm();
+  if (!t) return;
+  t.id = tmSelectedId;
+  const i = state.therapists.findIndex(x => x.id === tmSelectedId);
+  if (i >= 0) state.therapists[i] = t;
+  saveTherapists(state.therapists);
+  tmClearForm();
+  toast("更新しました");
+});
+document.getElementById("tmDelete").addEventListener("click", () => {
+  if (tmSelectedId == null) return;
+  const t = state.therapists.find(x => x.id === tmSelectedId);
+  if (!t) return;
+  if (!confirm(`選択中のセラピスト『${t.name}』を削除します。よろしいですか？`)) return;
+  state.therapists = state.therapists.filter(x => x.id !== tmSelectedId);
+  saveTherapists(state.therapists);
+  tmClearForm();
+  toast("削除しました");
+});
+document.getElementById("tmClear").addEventListener("click", tmClearForm);
 
 /* ================= データ移行(エクスポート/インポート) ================= */
 document.getElementById("btnMenu").addEventListener("click", () => openSheet(document.getElementById("menuSheet")));
