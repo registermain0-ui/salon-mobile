@@ -77,6 +77,9 @@
   .base-row{display:flex;gap:8px;align-items:center;padding:10px 14px;font-size:13px;flex:none}
   .base-row input{width:70px;border:1px solid #bbb;border-radius:6px;padding:8px;font-size:16px;text-align:center}
   .base-row button{border:1px solid #bbb;background:#fff;border-radius:6px;padding:9px 12px;font-size:13px}
+  .slot-course{border:1px solid #bbb;border-radius:6px;padding:8px 6px;font-size:15px;background:#fff}
+  #slotRun{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700}
+  #slotResult{padding-bottom:14px}
   .cand{overflow-y:auto;flex:1;min-height:120px}
   .cand table{width:100%;border-collapse:collapse;font-size:13px}
   .cand th{background:#f5f5f5;padding:8px 4px;font-weight:600;border-bottom:1px solid #ddd;position:sticky;top:0}
@@ -200,6 +203,7 @@
   </div>
   <div class="btn-row">
     <button class="op primary" id="btnShortest">最短取得</button>
+    <button class="op" id="btnSlotSearch">空枠検索</button>
     <button class="op" id="btnNow">現在時刻</button>
     <button class="op" id="btnAttendance">出勤</button>
     <button class="op" id="btnHandover">引継</button>
@@ -240,6 +244,21 @@
     <textarea id="snsText" readonly></textarea>
     <div class="r"><button id="snsFormat">フォーマット</button><button id="snsCopy">コピー</button></div>
   </div>
+</div>
+
+<!-- 空枠検索シート -->
+<div class="sheet" id="slotSheet">
+  <div class="grip"></div>
+  <h2>空枠検索<button class="sheet-close">×</button></h2>
+  <div class="base-row">
+    時刻 <input id="slotTime" inputmode="numeric" placeholder="空白=今">
+    コース <select id="slotCourse" class="slot-course">
+      <option>60</option><option>80</option><option>100</option><option>120</option>
+      <option>140</option><option>160</option><option>180</option>
+    </select>
+    <button id="slotRun">検索</button>
+  </div>
+  <div class="cand" id="slotResult"></div>
 </div>
 
 <!-- 出勤登録シート -->
