@@ -378,14 +378,38 @@ function getSendStatus(id) {
   if (!q[id]) return { tracked: false, customer: false, therapist: false };
   return { tracked: true, customer: !!q[id].customer, therapist: !!q[id].therapist };
 }
-function countPendingSends() {
+function findQueueReservation(entry, id) {
+  const list = loadReservations(entry.date);
+  return list.find(r => r.id === id) || null;
+}
+// 未送信一覧: 予約実体と結合し、消えた予約はキューから掃除(PC版のJOIN相当)
+function loadPendingSends() {
   const q = loadSendQueue();
-  return Object.values(q).filter(x => !(x.customer && x.therapist)).length;
+  const out = [];
+  let dirty = false;
+  for (const [id, entry] of Object.entries(q)) {
+    const r = findQueueReservation(entry, id);
+    if (!r) { delete q[id]; dirty = true; continue; }
+    if (entry.customer && entry.therapist) continue;
+    const t = state.therapists.find(x => x.id === r.therapistId);
+    out.push({
+      id, date: entry.date, startMin: r.start,
+      therapistName: t ? t.name : "",
+      customer: r.customer, phoneLast4: r.phoneLast4,
+      customerDone: !!entry.customer, therapistDone: !!entry.therapist
+    });
+  }
+  if (dirty) saveSendQueue(q);
+  return out.sort((a, b) => a.date.localeCompare(b.date) || a.startMin - b.startMin);
+}
+function countPendingSends() {
+  return loadPendingSends().length;
 }
 function refreshSendBadge() {
-  // 送信待機の一覧UIはM-V2で追加予定。内部記録のみ継続し、バッジは非表示。
   const el = document.getElementById("sendBadge");
-  if (el) el.style.display = "none";
+  const n = countPendingSends();
+  el.textContent = n;
+  el.style.display = n > 0 ? "inline-block" : "none";
 }
 
 /* ================= レンダリング ================= */
@@ -413,6 +437,7 @@ function render() {
     row.className = "row";
     const cautionLine = (t.caution || "").split(/\r?\n/)[0] || "";
     row.innerHTML = `<div class="th-name"><span class="nm">${esc(t.name)}</span><small>${fmtBiz(a.startMin ?? BIZ_START_MIN)}〜${fmtBiz(a.endMin ?? 30 * 60)}</small>${cautionLine ? `<small class="cau">${esc(cautionLine)}</small>` : ""}</div>`;
+    row.querySelector(".th-name").addEventListener("click", () => openCautionEditor(t.id));
     const cells = document.createElement("div");
     cells.className = "cells";
 
@@ -898,6 +923,172 @@ document.getElementById("fSave").addEventListener("click", () => {
   refreshSendBadge();
   formPage.classList.remove("open");
   render();
+});
+
+/* ================= 引継登録(Type:A一括) ================= */
+const hoSheet = document.getElementById("hoSheet");
+const HO_MAX_ROWS = 20;
+document.getElementById("btnHandover").addEventListener("click", () => {
+  const present = presentTherapists();
+  if (present.length === 0) { alert("先に出勤登録をしてください。"); return; }
+  document.getElementById("hoRows").innerHTML = "";
+  for (let i = 0; i < 5; i++) addHandoverRow();
+  openSheet(hoSheet);
+});
+function addHandoverRow() {
+  const wrap = document.getElementById("hoRows");
+  if (wrap.children.length >= HO_MAX_ROWS) { toast(`最大${HO_MAX_ROWS}行までです`); return; }
+  const present = presentTherapists().map(p => p.t).sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  const row = document.createElement("div");
+  row.className = "ho-row";
+  const sel = document.createElement("select");
+  sel.className = "c-th";
+  sel.innerHTML = `<option value=""></option>` + present.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  const tm = document.createElement("input");
+  tm.className = "c-tm"; tm.placeholder = "2130"; tm.inputMode = "numeric";
+  tm.addEventListener("blur", () => {
+    const v = parseBizTime(tm.value);
+    if (tm.value.trim() !== "") tm.value = v == null ? tm.value : fmtBiz(v);
+  });
+  const cs = document.createElement("select");
+  cs.className = "c-cs";
+  cs.innerHTML = `<option value=""></option>` + COURSES.map(c => `<option value="${c}">${c}</option>`).join("");
+  const nm = document.createElement("input");
+  nm.className = "c-nm"; nm.placeholder = "顧客名";
+  const p4 = document.createElement("input");
+  p4.className = "c-p4"; p4.placeholder = "0000"; p4.inputMode = "numeric"; p4.maxLength = 4;
+  row.append(sel, tm, cs, nm, p4);
+  wrap.appendChild(row);
+}
+document.getElementById("hoAddRow").addEventListener("click", addHandoverRow);
+document.getElementById("hoSave").addEventListener("click", () => {
+  const rows = [...document.querySelectorAll("#hoRows .ho-row")];
+  const errors = [];
+  const buffer = [];
+  rows.forEach((row, i) => {
+    const [sel, tm, cs, nm, p4] = row.children;
+    const emptyRow = !sel.value && !tm.value.trim() && !cs.value && !nm.value.trim() && !p4.value.trim();
+    if (!sel.value) {
+      if (emptyRow) return; // 空行はスキップ(PC版準拠)
+      errors.push(`${i + 1}行目: セラピスト未選択`); return;
+    }
+    const start = parseBizTime(tm.value);
+    if (start == null) { errors.push(`${i + 1}行目: 開始時刻が不正（例: 0930 / 21:00 / 26:30）`); return; }
+    const course = Number(cs.value) || null;
+    if (!course) { errors.push(`${i + 1}行目: コース分(60/80/100/120) 未選択`); return; }
+    if (!nm.value.trim()) { errors.push(`${i + 1}行目: 顧客名 未入力`); return; }
+    if (!/^\d{4}$/.test(p4.value.trim())) { errors.push(`${i + 1}行目: 下4桁は4桁数字で入力`); return; }
+    buffer.push({
+      id: newGuid(),
+      therapistId: Number(sel.value),
+      customer: nm.value.trim(), phoneLast4: p4.value.trim(),
+      start, end: calcEnd(start, course, 0),
+      type: "A",
+      courseMinutes: course, extensionMinutes: 0,
+      customerAttr: "", nominationType: "",
+      paymentType: "現金", discountAmount: null, opFlag: "", totalAmount: null,
+      memo: "[引継]"
+    });
+  });
+  if (errors.length) { alert(errors.join("\n")); return; }
+  if (buffer.length === 0) { alert("有効な行がありません。"); return; }
+
+  // 1件ずつ重複・退勤超過を確認(拒否した行はスキップ = PC版準拠)
+  let added = 0;
+  for (const r of buffer) {
+    const overlaps = findOverlaps(state.reservations, r, null);
+    if (overlaps.length) {
+      const list = overlaps.map(o => `・${fmtBiz(o.start)}〜${fmtBiz(o.end)}  ${o.customer} ${o.phoneLast4}`).join("\n");
+      if (!confirm(`【${r.customer}】同一セラピストの既存予約と重なっています。\n\n${list}\n\n登録しますか？`)) continue;
+    }
+    if (isOverShiftEnd(state.attendance, r)) {
+      if (!confirm(`【${r.customer}】終了時間が退勤時刻を超過しますが、よろしいですか？`)) continue;
+    }
+    state.reservations.push(r);
+    added++;
+  }
+  if (added > 0) {
+    saveReservations(state.dateKey, state.reservations);
+    render();
+  }
+  closeSheets();
+  toast(`${added}件登録しました`);
+});
+
+/* ================= 送信待機一覧 ================= */
+const sqSheet = document.getElementById("sqSheet");
+document.getElementById("btnSendQueue").addEventListener("click", () => {
+  renderSendQueue();
+  openSheet(sqSheet);
+});
+function renderSendQueue() {
+  const body = document.getElementById("sqBody");
+  const items = loadPendingSends();
+  if (items.length === 0) {
+    body.innerHTML = `<div class="sq-empty">送信待機の予約はありません。</div>`;
+    refreshSendBadge();
+    return;
+  }
+  body.innerHTML = "";
+  for (const it of items) {
+    const el = document.createElement("div");
+    el.className = "sq-item";
+    const cust = it.phoneLast4 ? `${it.customer}（${it.phoneLast4}）` : it.customer;
+    el.innerHTML = `
+      <div class="sq-line1">
+        <span class="dt">${esc(fmtQueueDate(it.date))} ${fmtBiz(it.startMin)}</span>
+        <b>${esc(it.therapistName)}</b>
+        <span>${esc(cust)}</span>
+        <button class="sq-open">開く</button>
+      </div>
+      <div class="sq-line2">
+        <label><input type="checkbox" class="cq" ${it.customerDone ? "checked" : ""}>顧客送信</label>
+        <label><input type="checkbox" class="tq" ${it.therapistDone ? "checked" : ""}>セラピスト送信</label>
+      </div>`;
+    const sync = () => {
+      const c = el.querySelector(".cq").checked, t = el.querySelector(".tq").checked;
+      setSendStatus(it.id, c, t);
+      refreshSendBadge();
+      if (c && t) {
+        el.remove();
+        if (!document.querySelector("#sqBody .sq-item")) renderSendQueue();
+      }
+    };
+    el.querySelector(".cq").addEventListener("change", sync);
+    el.querySelector(".tq").addEventListener("change", sync);
+    el.querySelector(".sq-open").addEventListener("click", () => {
+      closeSheets();
+      if (state.dateKey !== it.date) { state.dateKey = it.date; reloadDate(); }
+      openReservationForm(it.id);
+    });
+    body.appendChild(el);
+  }
+  refreshSendBadge();
+}
+function fmtQueueDate(key) {
+  const d = dateKeyToDate(key);
+  return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} (${"日月火水木金土"[d.getDay()]})`;
+}
+
+/* ================= 注意点編集(セラピスト名タップ = PC版[M]) ================= */
+const cauSheet = document.getElementById("cauSheet");
+let cauTargetId = null;
+function openCautionEditor(tid) {
+  const t = state.therapists.find(x => x.id === tid);
+  if (!t) return;
+  cauTargetId = tid;
+  document.getElementById("cauTitle").childNodes[0].textContent = `注意点編集: ${t.name}`;
+  document.getElementById("cauText").value = t.caution || "";
+  openSheet(cauSheet);
+}
+document.getElementById("cauSave").addEventListener("click", () => {
+  const t = state.therapists.find(x => x.id === cauTargetId);
+  if (t) {
+    t.caution = document.getElementById("cauText").value;
+    saveTherapists(state.therapists);
+    render();
+  }
+  closeSheets();
 });
 
 /* ================= データ移行(エクスポート/インポート) ================= */

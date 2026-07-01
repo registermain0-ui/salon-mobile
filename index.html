@@ -101,6 +101,33 @@
   .sheet-foot .sub{border:1px solid #bbb;background:#fff;border-radius:8px;padding:11px 14px;font-size:14px}
   .sheet-foot .main{flex:1;border:none;background:var(--accent);color:#fff;border-radius:8px;padding:11px;font-size:15px;font-weight:700}
 
+  /* 引継登録 */
+  .ho-body{overflow-y:auto;flex:1;padding:8px 10px}
+  .ho-head{display:flex;gap:4px;font-size:11px;color:var(--sub);padding:2px 0 4px}
+  .ho-head .c-th{width:96px;flex:none}.ho-head .c-tm{width:62px;flex:none}.ho-head .c-cs{width:58px;flex:none}
+  .ho-head .c-nm{flex:1}.ho-head .c-p4{width:56px;flex:none}
+  .ho-row{display:flex;gap:4px;margin-bottom:6px}
+  .ho-row select,.ho-row input{border:1px solid #bbb;border-radius:6px;padding:9px 4px;font-size:13px;background:#fff;min-width:0}
+  .ho-row .c-th{width:96px;flex:none}.ho-row .c-tm{width:62px;flex:none;text-align:center}
+  .ho-row .c-cs{width:58px;flex:none}.ho-row .c-nm{flex:1}.ho-row .c-p4{width:56px;flex:none;text-align:center}
+  .ho-add{display:block;width:100%;border:1px dashed #999;background:#fff;color:var(--sub);border-radius:8px;padding:10px;font-size:13px;margin-top:2px}
+
+  /* 送信待機 */
+  .sq-body{overflow-y:auto;flex:1;min-height:160px;padding:6px 10px 14px}
+  .sq-item{border:1px solid #ddd;border-radius:8px;padding:10px 12px;margin-bottom:8px}
+  .sq-line1{display:flex;align-items:center;gap:8px;font-size:14px}
+  .sq-line1 b{font-size:15px}
+  .sq-line1 .dt{color:var(--sub);font-size:12px}
+  .sq-open{margin-left:auto;border:1px solid var(--accent);color:var(--accent);background:#fff;border-radius:6px;padding:6px 12px;font-size:13px;flex:none}
+  .sq-line2{display:flex;gap:18px;margin-top:8px}
+  .sq-line2 label{display:flex;align-items:center;gap:6px;font-size:14px}
+  .sq-line2 input{width:22px;height:22px}
+  .sq-empty{text-align:center;color:var(--sub);font-size:14px;padding:36px 0}
+
+  /* 注意点編集 */
+  .cau-body{padding:8px 14px}
+  .cau-body textarea{width:100%;height:110px;border:1px solid #bbb;border-radius:8px;padding:10px;font-size:15px;resize:none}
+
   /* メニュー */
   .menu-body{padding:10px 14px 16px}
   .menu-body button{display:block;width:100%;border:1px solid #bbb;background:#fff;border-radius:8px;padding:13px;font-size:15px;margin-bottom:10px;text-align:left}
@@ -150,7 +177,9 @@
     <button class="op primary" id="btnShortest">最短取得</button>
     <button class="op" id="btnNow">現在時刻</button>
     <button class="op" id="btnAttendance">出勤</button>
-    <button class="op" id="btnMenu">データ<span class="badge" id="sendBadge">0</span></button>
+    <button class="op" id="btnHandover">引継</button>
+    <button class="op" id="btnSendQueue">送信待機<span class="badge" id="sendBadge">0</span></button>
+    <button class="op" id="btnMenu">データ</button>
   </div>
 </div>
 
@@ -211,6 +240,40 @@
     <button id="impData">インポート(バックアップ読込)</button>
     <input type="file" id="impFile" accept="application/json" style="display:none">
     <p class="menu-note">データはこの端末内に保存されます。機種変更やPCとの連携にはエクスポートしたファイルを使用してください。(PC同期はM-V3で対応予定)</p>
+  </div>
+</div>
+
+<!-- 引継登録シート -->
+<div class="sheet" id="hoSheet">
+  <div class="grip"></div>
+  <h2>引継登録（Type:A 一括）<button class="sheet-close">×</button></h2>
+  <div class="ho-body" id="hoBody">
+    <div class="ho-head"><span class="c-th">セラピスト</span><span class="c-tm">開始</span><span class="c-cs">コース</span><span class="c-nm">顧客名</span><span class="c-p4">下4桁</span></div>
+    <div id="hoRows"></div>
+    <button class="ho-add" id="hoAddRow">+ 行を追加</button>
+  </div>
+  <div class="sheet-foot">
+    <button class="main" id="hoSave">登録（Type:A）</button>
+  </div>
+</div>
+
+<!-- 送信待機シート -->
+<div class="sheet" id="sqSheet">
+  <div class="grip"></div>
+  <h2>送信待機（手動送信チェック）<button class="sheet-close">×</button></h2>
+  <div class="sq-body" id="sqBody"></div>
+</div>
+
+<!-- 注意点編集シート -->
+<div class="sheet" id="cauSheet">
+  <div class="grip"></div>
+  <h2 id="cauTitle">注意点編集<button class="sheet-close">×</button></h2>
+  <div class="cau-body">
+    <p class="menu-note">当日の受付注意点。予約画面に赤文字で表示されます。</p>
+    <textarea id="cauText"></textarea>
+  </div>
+  <div class="sheet-foot">
+    <button class="main" id="cauSave">保存</button>
   </div>
 </div>
 
