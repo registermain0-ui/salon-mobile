@@ -13,8 +13,8 @@ const MINUTE_STEP   = 10;             // 10分グリッド
 const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
-const AREAS = ["A", "B"]; // エリア(設定メニューは後日追加予定)
-const APP_VERSION = "M-V5";
+
+const APP_VERSION = "M-V6";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -78,17 +78,18 @@ function mapNowToBizMin(now) {
 }
 
 // 選択日の初期基準時刻(分)。PC: ComputeDefaultBaseTimeForSelectedDate + RoundDownTo5
-function defaultBaseMin(selectedDateKey, now) {
+function defaultBaseMin(selectedDateKey, now, roundTo = 5) {
+  const r = Math.max(1, roundTo);
   if (selectedDateKey === getBusinessDate(now)) {
     const v = mapNowToBizMin(now);
-    return Math.floor(v / 5) * 5;
+    return Math.floor(v / r) * r;
   }
   return BIZ_START_MIN;
 }
 
-function parseIntervalMinutes(s) {
+function parseIntervalMinutes(s, def = 20) {
   const m = parseInt(s, 10);
-  return (!isNaN(m) && m > 0) ? m : 20;
+  return (!isNaN(m) && m > 0) ? m : def;
 }
 
 // 出勤の start/end 補正。end<=start は +24h(PC: TryFindEarliestSlot冒頭)
@@ -105,7 +106,7 @@ function normSpan(min) { return min < BIZ_START_MIN ? min + 24 * 60 : min; }
 /* 最短取得(PC: TimetableView.TryFindEarliestSlot 完全移植)
  * blocks: [{s,e}](予約+仮押さえ, 営業分), a:{startMin,endMin}, nowMin:基準(営業分), interval:分
  * 戻り: {found, startMin, maxCourse} */
-function tryFindEarliestSlot(a, blocksIn, nowMin, interval) {
+function tryFindEarliestSlot(a, blocksIn, nowMin, interval, prep = 15) {
   const { s: bizStart, e: bizEnd } = normAttendance(a);
 
   const blocks = blocksIn
@@ -120,12 +121,12 @@ function tryFindEarliestSlot(a, blocksIn, nowMin, interval) {
   let stateStart;
   const inService = blocks.find(b => b.s <= nowMin && nowMin < b.e);
   if (nowMin < bizStart) {
-    const p15 = nowMin + 15;
-    stateStart = p15 > bizStart ? p15 : bizStart;
+    const p = nowMin + prep;
+    stateStart = p > bizStart ? p : bizStart;
   } else if (inService) {
     stateStart = inService.e + interval;
   } else {
-    stateStart = nowMin + 15;
+    stateStart = nowMin + prep;
     for (const b of blocks) {
       if (stateStart >= b.s && stateStart < b.e + interval) stateStart = b.e + interval;
     }
@@ -161,7 +162,7 @@ function tryFindEarliestSlot(a, blocksIn, nowMin, interval) {
 /* 空枠検索: 指定コースが入る最初の空きを探す(状態基準は tryFindEarliestSlot と同一)
  * ladder: 最大対応コース算出用の候補リスト
  * 戻り: {found, startMin, maxCourse(そのギャップに入る最大コース)} */
-function findSlotForCourse(a, blocksIn, nowMin, interval, courseMin, ladder) {
+function findSlotForCourse(a, blocksIn, nowMin, interval, courseMin, ladder, prep = 15) {
   const { s: bizStart, e: bizEnd } = normAttendance(a);
   const blocks = blocksIn
     .map(b => {
@@ -174,12 +175,12 @@ function findSlotForCourse(a, blocksIn, nowMin, interval, courseMin, ladder) {
   let stateStart;
   const inService = blocks.find(b => b.s <= nowMin && nowMin < b.e);
   if (nowMin < bizStart) {
-    const p15 = nowMin + 15;
-    stateStart = p15 > bizStart ? p15 : bizStart;
+    const p = nowMin + prep;
+    stateStart = p > bizStart ? p : bizStart;
   } else if (inService) {
     stateStart = inService.e + interval;
   } else {
-    stateStart = nowMin + 15;
+    stateStart = nowMin + prep;
     for (const b of blocks) {
       if (stateStart >= b.s && stateStart < b.e + interval) stateStart = b.e + interval;
     }
@@ -277,15 +278,15 @@ function calcEnd(startMin, course, ext) {
   return e;
 }
 
-// 総額計算(PC: RecalcTotal)
-function calcTotal(prices, course, ext, discount, opFlag, nomType, nominationFee) {
+// 総額計算(PC: RecalcTotal 拡張。OP金額・指名料適用は設定から解決して渡す)
+function calcTotal(prices, course, ext, discount, opPrice, applyNomFee, nominationFee) {
   const base = prices.coursePrice[course];
   if (base == null) return null;
   const unit = Math.max(1, prices.extensionUnitMinutes);
   const extPrice = Math.floor(Math.max(0, ext || 0) / unit) * Math.max(0, prices.extensionUnitPrice);
-  const opPrice = opFlag === "有" ? Math.max(0, prices.opPrice) : 0;
-  const nomFee = nomType === "本" ? Math.max(0, nominationFee || 0) : 0;
-  let total = base + extPrice + opPrice + nomFee - Math.max(0, discount || 0);
+  const op = Math.max(0, opPrice || 0);
+  const nomFee = applyNomFee ? Math.max(0, nominationFee || 0) : 0;
+  let total = base + extPrice + op + nomFee - Math.max(0, discount || 0);
   return total < 0 ? 0 : total;
 }
 
@@ -455,6 +456,37 @@ function loadPrices() {
     extensionUnitMinutes: 20, extensionUnitPrice: 5000, opPrice: 5000
   });
 }
+function savePrices(p) { LS.set(K.prices, p); touchMeta(K.prices); }
+function saveDiscounts(d) { LS.set(K.discounts, d); touchMeta(K.discounts); }
+const DEFAULT_SETTINGS = {
+  attrs: ["N", "R"],
+  nomTypes: [
+    { name: "F", fee: false }, { name: "写", fee: false },
+    { name: "本", fee: true }, { name: "姫", fee: false }
+  ],
+  options: [{ name: "有", price: 5000 }],
+  areas: ["A", "B"],
+  calc: { prep: 15, defaultInterval: 20, roundTo: 5 }
+};
+function loadSettings() {
+  const s = LS.get("este.settings", null);
+  if (!s) return JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+  // 欠損補完(旧バージョンからの移行)
+  const d = DEFAULT_SETTINGS;
+  return {
+    attrs: Array.isArray(s.attrs) && s.attrs.length ? s.attrs : d.attrs.slice(),
+    nomTypes: Array.isArray(s.nomTypes) && s.nomTypes.length ? s.nomTypes : JSON.parse(JSON.stringify(d.nomTypes)),
+    options: Array.isArray(s.options) ? s.options : JSON.parse(JSON.stringify(d.options)),
+    areas: Array.isArray(s.areas) && s.areas.length ? s.areas : d.areas.slice(),
+    calc: {
+      prep: s.calc && Number.isFinite(s.calc.prep) ? s.calc.prep : d.calc.prep,
+      defaultInterval: s.calc && Number.isFinite(s.calc.defaultInterval) ? s.calc.defaultInterval : d.calc.defaultInterval,
+      roundTo: s.calc && Number.isFinite(s.calc.roundTo) && s.calc.roundTo >= 1 ? s.calc.roundTo : d.calc.roundTo
+    }
+  };
+}
+function saveSettings(s) { LS.set("este.settings", s); touchMeta("este.settings"); }
+let CFG = null; // 起動時と設定保存時に更新
 function loadDiscounts() { return LS.get(K.discounts, [0, 1000, 2000, 3000, 5000]); }
 function loadSnsFormat() { return LS.get(K.snsFormat, { header: "", footer: "" }); }
 function saveSnsFormat(f) { LS.set(K.snsFormat, f); }
@@ -467,6 +499,10 @@ function newGuid() {
     const r = Math.random() * 16 | 0; return (c === "x" ? r : (r & 0x3 | 0x8)).toString(16);
   });
 }
+
+function AREAS() { return CFG.areas; }
+function IV(t) { return parseIntervalMinutes(t.interval, CFG.calc.defaultInterval); }
+CFG = loadSettings();
 
 /* ================= アプリ状態 ================= */
 const state = {
@@ -498,7 +534,7 @@ function reloadDate() {
     if (col < 0 || col >= COLUMNS) continue;
     (state.holdCells[h.therapistId] ||= new Set()).add(col);
   }
-  state.shortestBaseMin = defaultBaseMin(state.dateKey, new Date());
+  state.shortestBaseMin = defaultBaseMin(state.dateKey, new Date(), CFG.calc.roundTo);
   render();
   refreshSendBadge();
 }
@@ -581,7 +617,7 @@ function render() {
     const row = document.createElement("div");
     row.className = "row";
     const cautionLine = (t.caution || "").split(/\r?\n/)[0] || "";
-    const areaTag = AREAS.includes(a.area) ? `<span class="area-tag">${a.area}</span>` : "";
+    const areaTag = AREAS().includes(a.area) ? `<span class="area-tag">${a.area}</span>` : "";
     row.innerHTML = `<div class="th-name"><span class="nm">${areaTag}${esc(t.name)}</span><small>${fmtBiz(a.startMin ?? BIZ_START_MIN)}〜${fmtBiz(a.endMin ?? 30 * 60)}</small>${cautionLine ? `<small class="cau">${esc(cautionLine)}</small>` : ""}</div>`;
     row.querySelector(".th-name").addEventListener("click", () => openCautionEditor(t.id));
     const cells = document.createElement("div");
@@ -606,7 +642,7 @@ function render() {
     const myRes = state.reservations.filter(r => r.therapistId === t.id)
       .map(r => ({ ...r, s: normSpan(r.start), e: normSpan(r.end) }))
       .sort((x, y) => x.s - y.s);
-    const iv = parseIntervalMinutes(t.interval);
+    const iv = IV(t);
     for (const r of myRes) {
       let ge = r.e + iv;
       const nexts = myRes.filter(x => x.s > r.e).map(x => x.s);
@@ -757,10 +793,10 @@ function openAttendance() {
     e.placeholder = "終了"; e.inputMode = "numeric"; e.className = "tm";
     const ar = document.createElement("select");
     ar.className = "ar";
-    ar.innerHTML = AREAS.map(v => `<option value="${v}">${v}</option>`).join("");
+    ar.innerHTML = AREAS().map(v => `<option value="${v}">${v}</option>`).join("");
     if (cur) {
       s.value = fmtBiz(cur.startMin); e.value = fmtBiz(cur.endMin);
-      if (AREAS.includes(cur.area)) ar.value = cur.area;
+      if (AREAS().includes(cur.area)) ar.value = cur.area;
     }
     [s, e].forEach(inp => inp.addEventListener("blur", () => {
       const v = parseBizTime(inp.value);
@@ -805,15 +841,28 @@ document.getElementById("attAddTherapist").addEventListener("click", () => {
 /* ================= 最短取得 ================= */
 const shortSheet = document.getElementById("shortSheet");
 let shortestArea = "全"; // 最短取得のエリアフィルタ
-function setShortestArea(v) {
-  shortestArea = v;
-  document.querySelectorAll("#shortArea button").forEach(b =>
-    b.classList.toggle("on", b.dataset.v === v));
-  renderShortest();
+let slotArea = "全";     // 空枠検索のエリアフィルタ
+function buildAreaSeg(containerId, current) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = ["全", ...AREAS()].map(v =>
+    `<button data-v="${esc(v)}"${v === current ? ' class="on"' : ""}>${esc(v)}</button>`).join("");
 }
 document.getElementById("shortArea").addEventListener("click", e => {
   const btn = e.target.closest("button");
-  if (btn) setShortestArea(btn.dataset.v);
+  if (!btn) return;
+  shortestArea = btn.dataset.v;
+  document.querySelectorAll("#shortArea button").forEach(b =>
+    b.classList.toggle("on", b.dataset.v === shortestArea));
+  renderShortest();
+});
+document.getElementById("slotArea").addEventListener("click", e => {
+  const btn = e.target.closest("button");
+  if (!btn) return;
+  slotArea = btn.dataset.v;
+  document.querySelectorAll("#slotArea button").forEach(b =>
+    b.classList.toggle("on", b.dataset.v === slotArea));
+  // 検索結果が出ていれば再検索
+  if (document.querySelector("#slotResult table")) runSlotSearch();
 });
 document.getElementById("btnShortest").addEventListener("click", () => {
   // 深夜帯は前営業日へ自動補正(PC: AutoAdjustSelectedDateForOverMidnightBusiness)
@@ -823,16 +872,15 @@ document.getElementById("btnShortest").addEventListener("click", () => {
     state.dateKey = toDateKey(d);
     reloadDate();
   }
-  state.shortestBaseMin = defaultBaseMin(state.dateKey, new Date());
+  state.shortestBaseMin = defaultBaseMin(state.dateKey, new Date(), CFG.calc.roundTo);
   document.getElementById("baseTime").value = fmtBiz(state.shortestBaseMin);
   shortestArea = "全";
-  document.querySelectorAll("#shortArea button").forEach(b =>
-    b.classList.toggle("on", b.dataset.v === "全"));
+  buildAreaSeg("shortArea", "全");
   renderShortest();
   openSheet(shortSheet);
 });
 document.getElementById("baseNow").addEventListener("click", () => {
-  state.shortestBaseMin = defaultBaseMin(state.dateKey, new Date());
+  state.shortestBaseMin = defaultBaseMin(state.dateKey, new Date(), CFG.calc.roundTo);
   document.getElementById("baseTime").value = fmtBiz(state.shortestBaseMin);
   renderShortest();
 });
@@ -841,7 +889,7 @@ document.getElementById("baseTime").addEventListener("blur", recalcBase);
 function recalcBase() {
   const v = parseBizTime(document.getElementById("baseTime").value);
   if (v == null) { document.getElementById("baseTime").value = fmtBiz(state.shortestBaseMin); return; }
-  state.shortestBaseMin = Math.floor(v / 5) * 5;
+  state.shortestBaseMin = Math.floor(v / CFG.calc.roundTo) * CFG.calc.roundTo;
   document.getElementById("baseTime").value = fmtBiz(state.shortestBaseMin);
   renderShortest();
 }
@@ -849,12 +897,12 @@ function recalcBase() {
 function computeCandidates(baseMin) {
   const out = [];
   for (const { t, a } of presentTherapists()) {
-    const interval = parseIntervalMinutes(t.interval);
+    const interval = IV(t);
     const blocks = state.reservations.filter(r => r.therapistId === t.id)
       .map(r => ({ s: r.start, e: r.end }));
     const set = state.holdCells[t.id];
     if (set && set.size) blocks.push(...holdCellsToRanges(set));
-    const f = tryFindEarliestSlot(a, blocks, baseMin, interval);
+    const f = tryFindEarliestSlot(a, blocks, baseMin, interval, CFG.calc.prep);
     out.push({
       therapistId: t.id, name: t.name, cap: t.maxCourse ?? 120,
       startMin: f.found ? f.startMin : null,
@@ -922,6 +970,8 @@ document.getElementById("btnSlotSearch").addEventListener("click", () => {
   const present = presentTherapists();
   if (present.length === 0) { alert("先に出勤登録をしてください。"); return; }
   document.getElementById("slotTime").value = "";
+  slotArea = "全";
+  buildAreaSeg("slotArea", "全");
   document.getElementById("slotResult").innerHTML =
     `<div class="sq-empty">時刻とコースを指定して「検索」を押してください。<br>時刻が空白の場合は現在からの最短を検索します。</div>`;
   openSheet(slotSheet);
@@ -937,23 +987,24 @@ function runSlotSearch() {
   const timeRaw = document.getElementById("slotTime").value.trim();
   let baseMin;
   if (timeRaw === "") {
-    baseMin = defaultBaseMin(state.dateKey, new Date());
+    baseMin = defaultBaseMin(state.dateKey, new Date(), CFG.calc.roundTo);
   } else {
     const v = parseBizTime(timeRaw);
     if (v == null) { alert("時刻は4桁の数字で入力してください。例: 2130 / 空白=現在から"); return; }
-    baseMin = Math.floor(v / 5) * 5;
+    baseMin = Math.floor(v / CFG.calc.roundTo) * CFG.calc.roundTo;
     document.getElementById("slotTime").value = fmtBiz(baseMin);
   }
   const course = Number(document.getElementById("slotCourse").value);
 
   const rows = [];
   for (const { t, a } of presentTherapists()) {
-    const interval = parseIntervalMinutes(t.interval);
+    if (slotArea !== "全" && a.area !== slotArea) continue; // エリアフィルタ
+    const interval = IV(t);
     const blocks = state.reservations.filter(r => r.therapistId === t.id)
       .map(r => ({ s: r.start, e: r.end }));
     const set = state.holdCells[t.id];
     if (set && set.size) blocks.push(...holdCellsToRanges(set));
-    const f = findSlotForCourse(a, blocks, baseMin, interval, course, SEARCH_COURSES);
+    const f = findSlotForCourse(a, blocks, baseMin, interval, course, SEARCH_COURSES, CFG.calc.prep);
     rows.push({
       therapistId: t.id, name: t.name, cap: t.maxCourse ?? 120,
       startMin: f.found ? f.startMin : null,
@@ -1033,6 +1084,20 @@ function openReservationForm(editId, seed) {
 
   document.getElementById("fCustomer").value = r ? r.customer : "";
   document.getElementById("fPhone").value = r ? r.phoneLast4 : "";
+  // 属性・指名・OPの選択肢は設定から生成(編集中の旧値がリストに無い場合も選べるよう追加)
+  const attrVals = CFG.attrs.slice();
+  if (r && r.customerAttr && !attrVals.includes(r.customerAttr)) attrVals.unshift(r.customerAttr);
+  document.getElementById("fAttr").innerHTML =
+    `<option value=""></option>` + attrVals.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  const nomVals = CFG.nomTypes.map(n => n.name);
+  if (r && r.nominationType && !nomVals.includes(r.nominationType)) nomVals.unshift(r.nominationType);
+  document.getElementById("fNom").innerHTML =
+    `<option value=""></option>` + nomVals.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  const opVals = CFG.options.map(o => o.name);
+  if (!opVals.includes("無")) opVals.push("無");
+  if (r && r.opFlag && !opVals.includes(r.opFlag)) opVals.unshift(r.opFlag);
+  document.getElementById("fOp").innerHTML =
+    `<option value=""></option>` + opVals.map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
   document.getElementById("fAttr").value = r ? (r.customerAttr || "") : "";
   document.getElementById("fNom").value = r ? (r.nominationType || "") : "";
   setPay(r ? (r.paymentType === "PAYPAY" ? "PAYPAY" : "現金") : "現金");
@@ -1075,11 +1140,18 @@ function recalcForm() {
   document.getElementById("fEnd").value = (startMin != null && course) ? fmtBiz(calcEnd(startMin, course, ext)) : "";
   const tid = Number(document.getElementById("fTherapist").value);
   const t = state.therapists.find(x => x.id === tid);
-  const total = course ? calcTotal(loadPrices(), course, ext,
+  const opSel = document.getElementById("fOp").value;
+  const prices = loadPrices();
+  let opPrice = 0;
+  const opDef = CFG.options.find(o => o.name === opSel);
+  if (opDef) opPrice = opDef.price;
+  else if (opSel === "有") opPrice = prices.opPrice; // 旧データ互換
+  const nomSel = document.getElementById("fNom").value;
+  const nomDef = CFG.nomTypes.find(n => n.name === nomSel);
+  const applyFee = nomDef ? !!nomDef.fee : nomSel === "本"; // 旧データ互換
+  const total = course ? calcTotal(prices, course, ext,
     Number(document.getElementById("fDiscount").value) || 0,
-    document.getElementById("fOp").value,
-    document.getElementById("fNom").value,
-    t ? t.nominationFee : 0) : null;
+    opPrice, applyFee, t ? t.nominationFee : 0) : null;
   document.getElementById("fTotal").textContent = total != null ? "¥ " + total.toLocaleString() : "—";
 }
 ["fStart", "fCourse", "fExt", "fDiscount", "fOp", "fNom", "fTherapist"].forEach(id =>
@@ -1531,18 +1603,162 @@ document.getElementById("tmDelete").addEventListener("click", () => {
 });
 document.getElementById("tmClear").addEventListener("click", tmClearForm);
 
+/* ================= 設定画面 ================= */
+const setPage = document.getElementById("setPage");
+document.getElementById("openSettings").addEventListener("click", () => {
+  closeSheets();
+  loadSettingsIntoForm();
+  setPage.classList.add("open");
+});
+document.getElementById("setBack").addEventListener("click", () => setPage.classList.remove("open"));
+
+function loadSettingsIntoForm() {
+  const p = loadPrices();
+  document.getElementById("sp60").value = p.coursePrice[60];
+  document.getElementById("sp80").value = p.coursePrice[80];
+  document.getElementById("sp100").value = p.coursePrice[100];
+  document.getElementById("sp120").value = p.coursePrice[120];
+  document.getElementById("spExtMin").value = p.extensionUnitMinutes;
+  document.getElementById("spExtPrice").value = p.extensionUnitPrice;
+  document.getElementById("sDiscounts").value = loadDiscounts().join("\n");
+  document.getElementById("sAttrs").value = CFG.attrs.join("\n");
+  document.getElementById("sAreas").value = CFG.areas.join("\n");
+  document.getElementById("scPrep").value = CFG.calc.prep;
+  document.getElementById("scIv").value = CFG.calc.defaultInterval;
+  document.getElementById("scRound").value = CFG.calc.roundTo;
+  // 指名種別
+  const nomWrap = document.getElementById("sNomRows");
+  nomWrap.innerHTML = "";
+  for (const n of CFG.nomTypes) addNomRow(n.name, n.fee);
+  // オプション
+  const opWrap = document.getElementById("sOpRows");
+  opWrap.innerHTML = "";
+  for (const o of CFG.options) addOpRow(o.name, o.price);
+}
+function addNomRow(name = "", fee = false) {
+  const wrap = document.getElementById("sNomRows");
+  const row = document.createElement("div");
+  row.className = "set-row";
+  row.innerHTML = `<input class="s-name" placeholder="種別名" value="${esc(name)}">` +
+    `<label class="s-fee"><input type="checkbox" ${fee ? "checked" : ""}>指名料</label>` +
+    `<button class="s-del">×</button>`;
+  row.querySelector(".s-del").addEventListener("click", () => row.remove());
+  wrap.appendChild(row);
+}
+function addOpRow(name = "", price = 0) {
+  const wrap = document.getElementById("sOpRows");
+  const row = document.createElement("div");
+  row.className = "set-row";
+  row.innerHTML = `<input class="s-name" placeholder="オプション名" value="${esc(name)}">` +
+    `<input class="s-price" inputmode="numeric" placeholder="金額" value="${price}">` +
+    `<button class="s-del">×</button>`;
+  row.querySelector(".s-del").addEventListener("click", () => row.remove());
+  wrap.appendChild(row);
+}
+document.getElementById("sNomAdd").addEventListener("click", () => addNomRow());
+document.getElementById("sOpAdd").addEventListener("click", () => addOpRow());
+
+document.getElementById("setSave").addEventListener("click", () => {
+  // 料金
+  const nums = {};
+  for (const [id, label] of [["sp60","60分"],["sp80","80分"],["sp100","100分"],["sp120","120分"],
+                             ["spExtMin","延長単位(分)"],["spExtPrice","延長単価"]]) {
+    const v = parseInt(document.getElementById(id).value, 10);
+    if (isNaN(v) || v < 0) { alert(`料金設定: ${label} は0以上の数字で入力してください。`); return; }
+    nums[id] = v;
+  }
+  if (nums.spExtMin < 1) { alert("延長単位(分)は1以上にしてください。"); return; }
+  // 割引
+  const discounts = [];
+  for (const line of document.getElementById("sDiscounts").value.split(/\r?\n/)) {
+    const t = line.trim();
+    if (t === "") continue;
+    const v = parseInt(t, 10);
+    if (isNaN(v) || v < 0) { alert(`割引: 「${t}」は数字で入力してください。`); return; }
+    discounts.push(v);
+  }
+  if (discounts.length === 0) discounts.push(0);
+  // 属性・エリア
+  const attrs = document.getElementById("sAttrs").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const areas = document.getElementById("sAreas").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (attrs.length === 0) { alert("顧客属性を1つ以上入力してください。"); return; }
+  if (areas.length === 0) { alert("エリアを1つ以上入力してください。"); return; }
+  if (new Set(areas).size !== areas.length) { alert("エリア名が重複しています。"); return; }
+  // 指名種別
+  const nomTypes = [];
+  for (const row of document.querySelectorAll("#sNomRows .set-row")) {
+    const name = row.querySelector(".s-name").value.trim();
+    if (name === "") continue;
+    if (nomTypes.some(n => n.name === name)) { alert(`指名種別「${name}」が重複しています。`); return; }
+    nomTypes.push({ name, fee: row.querySelector('input[type="checkbox"]').checked });
+  }
+  if (nomTypes.length === 0) { alert("指名種別を1つ以上入力してください。"); return; }
+  // オプション
+  const options = [];
+  for (const row of document.querySelectorAll("#sOpRows .set-row")) {
+    const name = row.querySelector(".s-name").value.trim();
+    if (name === "") continue;
+    const v = parseInt(row.querySelector(".s-price").value, 10);
+    if (isNaN(v) || v < 0) { alert(`オプション「${name}」の金額は0以上の数字で入力してください。`); return; }
+    if (options.some(o => o.name === name)) { alert(`オプション「${name}」が重複しています。`); return; }
+    options.push({ name, price: v });
+  }
+  // 最短計算
+  const prep = parseInt(document.getElementById("scPrep").value, 10);
+  const iv = parseInt(document.getElementById("scIv").value, 10);
+  const round = parseInt(document.getElementById("scRound").value, 10);
+  if (isNaN(prep) || prep < 0) { alert("準備時間は0以上の数字で入力してください。"); return; }
+  if (isNaN(iv) || iv < 0) { alert("既定インターバルは0以上の数字で入力してください。"); return; }
+  if (isNaN(round) || round < 1) { alert("基準時刻の丸め(分)は1以上の数字で入力してください。"); return; }
+
+  const p = loadPrices();
+  p.coursePrice = { 60: nums.sp60, 80: nums.sp80, 100: nums.sp100, 120: nums.sp120 };
+  p.extensionUnitMinutes = nums.spExtMin;
+  p.extensionUnitPrice = nums.spExtPrice;
+  savePrices(p);
+  saveDiscounts(discounts);
+  const s = { attrs, nomTypes, options, areas, calc: { prep, defaultInterval: iv, roundTo: round } };
+  saveSettings(s);
+  CFG = loadSettings();
+  setPage.classList.remove("open");
+  render();
+  toast("設定を保存しました");
+});
+
 /* ================= データ移行(エクスポート/インポート) ================= */
 document.getElementById("btnMenu").addEventListener("click", () => openSheet(document.getElementById("menuSheet")));
-document.getElementById("expData").addEventListener("click", () => {
+function buildExportMd() {
   const dump = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (k && k.startsWith("este.")) dump[k] = localStorage.getItem(k);
   }
-  const blob = new Blob([JSON.stringify({ app: "este-mobile", version: 1, data: dump }, null, 1)], { type: "application/json" });
+  const now = new Date();
+  const stamp = `${toDateKey(now)} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+  const payload = JSON.stringify({ app: "este-mobile", version: 2, exportedAt: Date.now(), data: dump });
+  return [
+    "# サロン受付 バックアップ",
+    "",
+    `- バージョン: ${APP_VERSION}`,
+    `- 作成日時: ${stamp}`,
+    "- 内容: 予約・出勤・仮押さえ・セラピスト・送信待機・設定(料金/指名種別/顧客属性/割引/オプション/エリア/最短計算)の全データ",
+    "",
+    "このファイルをアプリの「インポート」で読み込むと復元できます。",
+    "下のデータ部分は編集しないでください。",
+    "",
+    "## データ",
+    "",
+    "```json",
+    payload,
+    "```",
+    ""
+  ].join("\n");
+}
+document.getElementById("expData").addEventListener("click", () => {
+  const blob = new Blob([buildExportMd()], { type: "text/markdown" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = `este-backup-${state.dateKey}.json`;
+  a.download = `este-backup-${state.dateKey}.md`;
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -1551,11 +1767,16 @@ document.getElementById("impFile").addEventListener("change", async e => {
   const f = e.target.files[0];
   if (!f) return;
   try {
-    const obj = JSON.parse(await f.text());
+    const text = await f.text();
+    let obj = null;
+    // md形式: ```json ブロックを抽出。旧json形式もそのまま受け付ける
+    const m = text.match(/```json\s*([\s\S]*?)```/);
+    obj = JSON.parse(m ? m[1].trim() : text);
     if (!obj || obj.app !== "este-mobile" || !obj.data) throw new Error("形式が違います");
     if (!confirm("インポートすると同じ項目は上書きされます。実行しますか？")) return;
     for (const [k, v] of Object.entries(obj.data)) localStorage.setItem(k, v);
     state.therapists = loadTherapists();
+    CFG = loadSettings();
     reloadDate();
     closeSheets();
     toast("インポートしました");

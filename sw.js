@@ -1,5 +1,5 @@
 /* サロン受付 M-V1 Service Worker: 完全オフライン動作用 */
-const CACHE = "este-mobile-mv5-1";
+const CACHE = "este-mobile-mv6-1";
 const ASSETS = [
   "./",
   "./index.html",
