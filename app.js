@@ -14,7 +14,7 @@ const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
 
-const APP_VERSION = "M-V8";
+const APP_VERSION = "M-V8.1";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -667,7 +667,7 @@ const X = min => Math.round((min - BIZ_START_MIN) / MINUTE_STEP * CELL_W);
 function render() {
   document.getElementById("dateLabel").textContent = fmtDateLabel(state.dateKey);
   document.getElementById("modeLink").textContent = state.mode === "hold" ? "仮押さえ" : "受付";
-  document.getElementById("modeLink").classList.toggle("hold", state.mode === "hold");
+  document.getElementById("modeLink").classList.toggle("holdmode", state.mode === "hold");
 
   const rows = document.getElementById("rows");
   rows.innerHTML = "";
