@@ -1,5 +1,5 @@
 /* サロン受付 M-V1 Service Worker: 完全オフライン動作用 */
-const CACHE = "este-mobile-mv4-1";
+const CACHE = "este-mobile-mv5-1";
 const ASSETS = [
   "./",
   "./index.html",
@@ -10,7 +10,11 @@ const ASSETS = [
   "./icons/icon-512.png"
 ];
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // 自動skipWaitingはやめ、ユーザーの「更新」ボタンで切替える(作業中の強制リロード防止)
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+});
+self.addEventListener("message", e => {
+  if (e.data && e.data.type === "SKIP_WAITING") self.skipWaiting();
 });
 self.addEventListener("activate", e => {
   e.waitUntil(

@@ -13,6 +13,8 @@ const MINUTE_STEP   = 10;             // 10分グリッド
 const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
+const AREAS = ["A", "B"]; // エリア(設定メニューは後日追加予定)
+const APP_VERSION = "M-V5";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -579,7 +581,8 @@ function render() {
     const row = document.createElement("div");
     row.className = "row";
     const cautionLine = (t.caution || "").split(/\r?\n/)[0] || "";
-    row.innerHTML = `<div class="th-name"><span class="nm">${esc(t.name)}</span><small>${fmtBiz(a.startMin ?? BIZ_START_MIN)}〜${fmtBiz(a.endMin ?? 30 * 60)}</small>${cautionLine ? `<small class="cau">${esc(cautionLine)}</small>` : ""}</div>`;
+    const areaTag = AREAS.includes(a.area) ? `<span class="area-tag">${a.area}</span>` : "";
+    row.innerHTML = `<div class="th-name"><span class="nm">${areaTag}${esc(t.name)}</span><small>${fmtBiz(a.startMin ?? BIZ_START_MIN)}〜${fmtBiz(a.endMin ?? 30 * 60)}</small>${cautionLine ? `<small class="cau">${esc(cautionLine)}</small>` : ""}</div>`;
     row.querySelector(".th-name").addEventListener("click", () => openCautionEditor(t.id));
     const cells = document.createElement("div");
     cells.className = "cells";
@@ -752,13 +755,19 @@ function openAttendance() {
     s.placeholder = "出勤"; s.inputMode = "numeric"; s.className = "tm";
     const e = document.createElement("input");
     e.placeholder = "終了"; e.inputMode = "numeric"; e.className = "tm";
-    if (cur) { s.value = fmtBiz(cur.startMin); e.value = fmtBiz(cur.endMin); }
+    const ar = document.createElement("select");
+    ar.className = "ar";
+    ar.innerHTML = AREAS.map(v => `<option value="${v}">${v}</option>`).join("");
+    if (cur) {
+      s.value = fmtBiz(cur.startMin); e.value = fmtBiz(cur.endMin);
+      if (AREAS.includes(cur.area)) ar.value = cur.area;
+    }
     [s, e].forEach(inp => inp.addEventListener("blur", () => {
       const v = parseBizTime(inp.value);
       inp.value = v == null ? "" : fmtBiz(v);
       inp.classList.toggle("err", inp.value === "" && String(inp.dataset.raw || "").trim() !== "");
     }));
-    tr.append(sel, s, e);
+    tr.append(sel, s, e, ar);
     body.appendChild(tr);
   }
   openSheet(attSheet);
@@ -767,14 +776,14 @@ document.getElementById("attSave").addEventListener("click", () => {
   const out = [];
   const seen = new Set();
   for (const tr of document.querySelectorAll("#attRows .att-row")) {
-    const [sel, s, e] = tr.children;
+    const [sel, s, e, ar] = tr.children;
     if (!sel.value) continue;
     const tid = Number(sel.value);
     if (seen.has(tid)) { alert("同じセラピストが複数行に選択されています。"); return; }
     seen.add(tid);
     const sv = parseBizTime(s.value), ev = parseBizTime(e.value);
     if (sv == null || ev == null) { alert("出勤・終了時刻を入力してください。例: 12:00 / 26:30"); return; }
-    out.push({ therapistId: tid, startMin: sv, endMin: ev });
+    out.push({ therapistId: tid, startMin: sv, endMin: ev, area: ar.value });
   }
   state.attendance = out;
   saveAttendance(state.dateKey, out);
@@ -795,6 +804,17 @@ document.getElementById("attAddTherapist").addEventListener("click", () => {
 
 /* ================= 最短取得 ================= */
 const shortSheet = document.getElementById("shortSheet");
+let shortestArea = "全"; // 最短取得のエリアフィルタ
+function setShortestArea(v) {
+  shortestArea = v;
+  document.querySelectorAll("#shortArea button").forEach(b =>
+    b.classList.toggle("on", b.dataset.v === v));
+  renderShortest();
+}
+document.getElementById("shortArea").addEventListener("click", e => {
+  const btn = e.target.closest("button");
+  if (btn) setShortestArea(btn.dataset.v);
+});
 document.getElementById("btnShortest").addEventListener("click", () => {
   // 深夜帯は前営業日へ自動補正(PC: AutoAdjustSelectedDateForOverMidnightBusiness)
   const now = new Date();
@@ -805,6 +825,9 @@ document.getElementById("btnShortest").addEventListener("click", () => {
   }
   state.shortestBaseMin = defaultBaseMin(state.dateKey, new Date());
   document.getElementById("baseTime").value = fmtBiz(state.shortestBaseMin);
+  shortestArea = "全";
+  document.querySelectorAll("#shortArea button").forEach(b =>
+    b.classList.toggle("on", b.dataset.v === "全"));
   renderShortest();
   openSheet(shortSheet);
 });
@@ -843,7 +866,11 @@ function computeCandidates(baseMin) {
 
 function renderShortest() {
   const base = state.shortestBaseMin;
-  const cands = computeCandidates(base).filter(c => c.maxMinutes === 0 || c.startMin >= base);
+  // エリアフィルタ: 出勤登録のエリアで絞り込み(「全」は全員)
+  const areaOf = new Map(state.attendance.map(a => [a.therapistId, a.area]));
+  const cands = computeCandidates(base)
+    .filter(c => c.maxMinutes === 0 || c.startMin >= base)
+    .filter(c => shortestArea === "全" || areaOf.get(c.therapistId) === shortestArea);
   const tb = document.getElementById("candBody");
   tb.innerHTML = "";
   for (const c of cands) {
@@ -1567,9 +1594,40 @@ setTimeout(() => document.getElementById("btnNow").click(), 50);
 // 1分ごとに現在時刻ラインを更新
 setInterval(() => { if (!formPage.classList.contains("open")) render(); }, 60000);
 
-// Service Worker 登録(オフライン対応)
+// バージョン表示
+{
+  const v = document.getElementById("verLabel");
+  if (v) v.textContent = APP_VERSION;
+}
+
+// Service Worker 登録(オフライン対応)+新バージョン検知
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js").catch(() => {});
+  navigator.serviceWorker.register("./sw.js").then(reg => {
+    function watch(worker) {
+      worker.addEventListener("statechange", () => {
+        // 既存ページを制御中に新SWがinstalled = 新バージョンあり
+        if (worker.state === "installed" && navigator.serviceWorker.controller) {
+          showUpdateBanner(worker);
+        }
+      });
+    }
+    if (reg.waiting && navigator.serviceWorker.controller) showUpdateBanner(reg.waiting);
+    if (reg.installing) watch(reg.installing);
+    reg.addEventListener("updatefound", () => { if (reg.installing) watch(reg.installing); });
+  }).catch(() => {});
+  let reloading = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (reloading) return;
+    reloading = true;
+    location.reload();
+  });
+}
+function showUpdateBanner(worker) {
+  const el = document.getElementById("updBanner");
+  el.style.display = "flex";
+  document.getElementById("updBtn").onclick = () => {
+    worker.postMessage({ type: "SKIP_WAITING" });
+  };
 }
 
 } // end browser block
