@@ -14,7 +14,7 @@ const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
 
-const APP_VERSION = "M-V7";
+const APP_VERSION = "M-V8";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -517,6 +517,7 @@ function loadPrices() {
 function savePrices(p) { LS.set(K.prices, p); touchMeta(K.prices); }
 function saveDiscounts(d) { LS.set(K.discounts, d); touchMeta(K.discounts); }
 const DEFAULT_SETTINGS = {
+  staffs: [],
   attrs: ["N", "R"],
   nomTypes: [
     { name: "F", fee: false }, { name: "写", fee: false },
@@ -532,6 +533,7 @@ function loadSettings() {
   // 欠損補完(旧バージョンからの移行)
   const d = DEFAULT_SETTINGS;
   return {
+    staffs: Array.isArray(s.staffs) ? s.staffs : [],
     attrs: Array.isArray(s.attrs) && s.attrs.length ? s.attrs : d.attrs.slice(),
     nomTypes: Array.isArray(s.nomTypes) && s.nomTypes.length ? s.nomTypes : JSON.parse(JSON.stringify(d.nomTypes)),
     options: Array.isArray(s.options) ? s.options : JSON.parse(JSON.stringify(d.options)),
@@ -559,6 +561,12 @@ function newGuid() {
 }
 
 function AREAS() { return CFG.areas; }
+function loadCurrentStaff() { return LS.get("este.currentStaff", ""); }
+function saveCurrentStaff(v) { LS.set("este.currentStaff", v); }
+function refreshStaffChip() {
+  const cur = loadCurrentStaff();
+  document.getElementById("staffLink").textContent = "担当: " + (cur || "-");
+}
 function IV(t) { return parseIntervalMinutes(t.interval, CFG.calc.defaultInterval); }
 CFG = loadSettings();
 
@@ -649,6 +657,7 @@ function refreshSendBadge() {
   const n = countPendingSends();
   el.textContent = n;
   el.style.display = n > 0 ? "inline-block" : "none";
+  document.getElementById("btnSendQueue").classList.toggle("alert", n > 0);
 }
 
 /* ================= レンダリング ================= */
@@ -823,6 +832,7 @@ document.getElementById("modeLink").addEventListener("click", () => {
 
 /* ================= 現在時刻ジャンプ ================= */
 document.getElementById("btnNow").addEventListener("click", () => {
+  closeSheets();
   const target = (state.dateKey === getBusinessDate(new Date())) ? mapNowToBizMin(new Date()) : BIZ_START_MIN;
   const tt = document.getElementById("tt");
   tt.scrollLeft = Math.max(0, LEFT_W + X(target) - tt.clientWidth / 2);
@@ -830,7 +840,7 @@ document.getElementById("btnNow").addEventListener("click", () => {
 
 /* ================= 出勤登録 ================= */
 const attSheet = document.getElementById("attSheet");
-document.getElementById("btnAttendance").addEventListener("click", openAttendance);
+document.getElementById("btnAttendance").addEventListener("click", () => { closeSheets(); openAttendance(); });
 
 function openAttendance() {
   const body = document.getElementById("attRows");
@@ -1279,7 +1289,8 @@ document.getElementById("fSave").addEventListener("click", () => {
       const v = document.getElementById("fTotal").textContent.replace(/[^\d]/g, "");
       return v ? Number(v) : null;
     })(),
-    memo: document.getElementById("fMemo").value
+    memo: document.getElementById("fMemo").value,
+    staff: old ? (old.staff || "") : loadCurrentStaff()
   };
 
   // 重複・退勤超過の確認(PC: ConfirmBeforeCommit)
@@ -1318,6 +1329,7 @@ document.getElementById("fSave").addEventListener("click", () => {
 const hoSheet = document.getElementById("hoSheet");
 const HO_MAX_ROWS = 20;
 document.getElementById("btnHandover").addEventListener("click", () => {
+  closeSheets();
   const present = presentTherapists();
   if (present.length === 0) { alert("先に出勤登録をしてください。"); return; }
   document.getElementById("hoRows").innerHTML = "";
@@ -1376,7 +1388,8 @@ document.getElementById("hoSave").addEventListener("click", () => {
       courseMinutes: course, extensionMinutes: 0,
       customerAttr: "", nominationType: "",
       paymentType: "現金", discountAmount: null, opFlag: "", totalAmount: null,
-      memo: "[引継]"
+      memo: "[引継]",
+      staff: loadCurrentStaff()
     });
   });
   if (errors.length) { alert(errors.join("\n")); return; }
@@ -1459,6 +1472,30 @@ function fmtQueueDate(key) {
   return `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")} (${"日月火水木金土"[d.getDay()]})`;
 }
 
+/* ================= 担当内勤の切替 ================= */
+document.getElementById("staffLink").addEventListener("click", () => {
+  if (CFG.staffs.length === 0) {
+    alert("担当内勤が未登録です。データ → 設定 →「担当内勤」で登録してください。");
+    return;
+  }
+  const wrap = document.getElementById("staffList");
+  wrap.innerHTML = "";
+  const cur = loadCurrentStaff();
+  for (const name of CFG.staffs) {
+    const b = document.createElement("button");
+    b.textContent = name + (name === cur ? " ✓" : "");
+    if (name === cur) b.className = "cur";
+    b.addEventListener("click", () => {
+      saveCurrentStaff(name);
+      refreshStaffChip();
+      closeSheets();
+      toast(`担当: ${name}`);
+    });
+    wrap.appendChild(b);
+  }
+  openSheet(document.getElementById("staffSheet"));
+});
+
 /* ================= 注意点編集(セラピスト名タップ = PC版[M]) ================= */
 const cauSheet = document.getElementById("cauSheet");
 let cauTargetId = null;
@@ -1486,6 +1523,11 @@ let repDateKey = null;
 document.getElementById("openReport").addEventListener("click", () => {
   closeSheets();
   repDateKey = state.dateKey;
+  // 担当フィルタの選択肢: 全 + 設定の担当 + データ上に存在する担当
+  const names = new Set(CFG.staffs);
+  for (const r of loadReservations(repDateKey)) if (r.staff) names.add(r.staff);
+  document.getElementById("repStaff").innerHTML =
+    `<option value="">全</option>` + [...names].map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("");
   document.getElementById("repDateLabel").textContent = fmtDateLabel(repDateKey);
   document.getElementById("repOut").value = "";
   document.getElementById("repCount").textContent = "0件";
@@ -1510,10 +1552,13 @@ document.getElementById("repBuild").addEventListener("click", async () => {
     status.textContent = "Type A / Type B のどちらかを選択してください。";
     return;
   }
-  const items = loadReservations(repDateKey).map(r => {
-    const t = state.therapists.find(x => x.id === r.therapistId);
-    return { ...r, therapistName: t ? t.name : "" };
-  });
+  const staffFilter = document.getElementById("repStaff").value;
+  const items = loadReservations(repDateKey)
+    .filter(r => staffFilter === "" || (r.staff || "") === staffFilter)
+    .map(r => {
+      const t = state.therapists.find(x => x.id === r.therapistId);
+      return { ...r, therapistName: t ? t.name : "" };
+    });
   const { text, count } = buildReport(items, incA, incB);
   document.getElementById("repOut").value = text;
   document.getElementById("repCount").textContent = `${count}件`;
@@ -1690,6 +1735,7 @@ function loadSettingsIntoForm() {
   document.getElementById("spExtPrice").value = p.extensionUnitPrice;
   document.getElementById("sDiscounts").value = loadDiscounts().join("\n");
   document.getElementById("sAttrs").value = CFG.attrs.join("\n");
+  document.getElementById("sStaffs").value = CFG.staffs.join("\n");
   document.getElementById("sAreas").value = CFG.areas.join("\n");
   document.getElementById("scPrep").value = CFG.calc.prep;
   document.getElementById("scIv").value = CFG.calc.defaultInterval;
@@ -1748,6 +1794,8 @@ document.getElementById("setSave").addEventListener("click", () => {
   if (discounts.length === 0) discounts.push(0);
   // 属性・エリア
   const attrs = document.getElementById("sAttrs").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  const staffs = document.getElementById("sStaffs").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+  if (new Set(staffs).size !== staffs.length) { alert("担当内勤の名前が重複しています。"); return; }
   const areas = document.getElementById("sAreas").value.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
   if (attrs.length === 0) { alert("顧客属性を1つ以上入力してください。"); return; }
   if (areas.length === 0) { alert("エリアを1つ以上入力してください。"); return; }
@@ -1785,9 +1833,12 @@ document.getElementById("setSave").addEventListener("click", () => {
   p.extensionUnitPrice = nums.spExtPrice;
   savePrices(p);
   saveDiscounts(discounts);
-  const s = { attrs, nomTypes, options, areas, calc: { prep, defaultInterval: iv, roundTo: round } };
+  const s = { staffs, attrs, nomTypes, options, areas, calc: { prep, defaultInterval: iv, roundTo: round } };
   saveSettings(s);
   CFG = loadSettings();
+  // 現在の担当がリストから消えていたらリセット
+  if (loadCurrentStaff() && !CFG.staffs.includes(loadCurrentStaff())) saveCurrentStaff("");
+  refreshStaffChip();
   setPage.classList.remove("open");
   render();
   toast("設定を保存しました");
@@ -1882,6 +1933,8 @@ reloadDate();
 setTimeout(() => document.getElementById("btnNow").click(), 50);
 // 1分ごとに現在時刻ラインを更新
 setInterval(() => { if (!formPage.classList.contains("open")) render(); }, 60000);
+
+refreshStaffChip();
 
 // バージョン表示
 {

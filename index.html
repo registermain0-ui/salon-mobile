@@ -211,6 +211,12 @@
   .set-row .s-fee input{width:20px;height:20px}
   .set-row .s-del{flex:none;width:34px;height:38px;border:1px solid #ccc;background:#fff;border-radius:6px;color:#c00;font-size:16px}
 
+  /* 担当チップ・送信待機アラート */
+  .mode{display:flex;align-items:center;gap:6px}
+  .staff-chip{border:1px solid #bbb;background:#fff;border-radius:14px;padding:6px 10px;font-size:12px;color:var(--ink);max-width:110px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .op.alert{background:#d32f2f;color:#fff;border-color:#d32f2f;font-weight:700}
+  #staffList button.cur{border-color:var(--accent);color:var(--accent);font-weight:700}
+
   /* トースト */
   #toast{position:fixed;left:50%;bottom:80px;transform:translateX(-50%) translateY(20px);background:rgba(30,30,30,.9);color:#fff;font-size:13px;padding:10px 18px;border-radius:20px;opacity:0;pointer-events:none;transition:.25s;z-index:50}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -225,14 +231,14 @@
     <button class="date-btn" id="dateLabel">----/--/--</button>
     <input type="date" id="datePick" style="position:absolute;opacity:0;width:1px;height:1px;pointer-events:none">
     <button class="arrow" id="nextDay">›</button>
-    <span class="mode">モード: <button id="modeLink">受付</button></span>
+    <span class="mode">
+      <button id="modeLink">受付</button>
+      <button id="staffLink" class="staff-chip">担当: -</button>
+    </span>
   </div>
   <div class="btn-row">
     <button class="op primary" id="btnShortest">最短取得</button>
     <button class="op" id="btnSlotSearch">空枠検索</button>
-    <button class="op" id="btnNow">現在時刻</button>
-    <button class="op" id="btnAttendance">出勤</button>
-    <button class="op" id="btnHandover">引継</button>
     <button class="op" id="btnSendQueue">送信待機<span class="badge" id="sendBadge">0</span></button>
     <button class="op" id="btnMenu">データ</button>
   </div>
@@ -315,14 +321,17 @@
   <div class="grip"></div>
   <h2>メニュー<button class="sheet-close">×</button></h2>
   <div class="menu-body">
-    <button id="openSettings">設定</button>
+    <button id="btnNow">現在時刻へ移動</button>
+    <button id="btnAttendance">出勤</button>
+    <button id="btnHandover">引継</button>
     <button id="openReport">レポート</button>
+    <button id="openSettings">設定</button>
     <button id="openTherapistMgmt">セラピスト管理</button>
     <button id="expData">エクスポート(バックアップ保存)</button>
     <button id="impData">インポート(バックアップ読込)</button>
     <input type="file" id="impFile" accept=".md,.json,text/markdown,application/json" style="display:none">
     <p class="menu-note">バージョン: <b id="verLabel">-</b></p>
-    <p class="menu-note">データはこの端末内に保存されます。機種変更やPCとの連携にはエクスポートしたファイルを使用してください。(PC同期はM-V3で対応予定)</p>
+    <p class="menu-note">データはこの端末内に保存されます。機種変更やPCとの連携にはエクスポートしたファイルを使用してください。(PCとの連携機能はPC版のアップデートで対応予定)</p>
   </div>
 </div>
 
@@ -345,6 +354,13 @@
   <div class="grip"></div>
   <h2>送信待機（手動送信チェック）<button class="sheet-close">×</button></h2>
   <div class="sq-body" id="sqBody"></div>
+</div>
+
+<!-- 担当内勤選択シート -->
+<div class="sheet" id="staffSheet">
+  <div class="grip"></div>
+  <h2>担当内勤の切替<button class="sheet-close">×</button></h2>
+  <div class="menu-body" id="staffList"></div>
 </div>
 
 <!-- 注意点編集シート -->
@@ -437,6 +453,9 @@
     <div id="sOpRows"></div>
     <button class="ho-add" id="sOpAdd">+ オプションを追加</button>
 
+    <h3 class="set-h">担当内勤(1行に1つ)</h3>
+    <textarea id="sStaffs" class="set-ta set-ta-s"></textarea>
+
     <h3 class="set-h">エリア(1行に1つ)</h3>
     <textarea id="sAreas" class="set-ta set-ta-s"></textarea>
 
@@ -473,6 +492,7 @@
       <label><input type="checkbox" id="repB" checked>Type B</label>
       <span class="rep-count" id="repCount">0件</span>
     </div>
+    <div class="fg"><label>担当内勤</label><select id="repStaff"></select></div>
     <button class="rep-build" id="repBuild">生成してコピー</button>
     <div class="rep-status" id="repStatus">日付とTypeを選択して「生成してコピー」を押してください。</div>
     <textarea class="rep-out" id="repOut" readonly></textarea>
