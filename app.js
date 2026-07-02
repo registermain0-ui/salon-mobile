@@ -14,7 +14,7 @@ const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
 
-const APP_VERSION = "M-V6";
+const APP_VERSION = "M-V7";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -216,6 +216,64 @@ function findSlotForCourse(a, blocksIn, nowMin, interval, courseMin, ladder, pre
   return { found: false, startMin: null, maxCourse: 0 };
 }
 
+/* ラスト枠検索: 指定コースが取れる「一番遅い開始時刻」を探す
+ * 下限は最短検索と同じ状態基準(準備時間・施術中・インターバル)を適用
+ * 戻り: {found, startMin(最遅開始), maxCourse(そのギャップの最大対応コース)} */
+function findLastSlotForCourse(a, blocksIn, nowMin, interval, courseMin, ladder, prep = 15) {
+  const { s: bizStart, e: bizEnd } = normAttendance(a);
+  const blocks = blocksIn
+    .map(b => {
+      let s = normSpan(b.s), e = normSpan(b.e);
+      if (e <= s) e += 24 * 60;
+      return { s, e };
+    })
+    .sort((x, y) => x.s - y.s);
+
+  let stateStart;
+  const inService = blocks.find(b => b.s <= nowMin && nowMin < b.e);
+  if (nowMin < bizStart) {
+    const p = nowMin + prep;
+    stateStart = p > bizStart ? p : bizStart;
+  } else if (inService) {
+    stateStart = inService.e + interval;
+  } else {
+    stateStart = nowMin + prep;
+    for (const b of blocks) {
+      if (stateStart >= b.s && stateStart < b.e + interval) stateStart = b.e + interval;
+    }
+  }
+
+  const ladderMax = free => {
+    let m = 0;
+    for (const c of ladder) if (c <= free) m = c;
+    return m;
+  };
+
+  let best = null; // {startMin, maxCourse}
+  const consider = (gapStart, gapEnd) => {
+    const start = Math.max(gapStart, stateStart);
+    if (start >= gapEnd) return;
+    const free = Math.floor(gapEnd - start);
+    if (free < courseMin) return;
+    const lastStart = gapEnd - courseMin; // このギャップでの最遅開始
+    if (!best || lastStart > best.startMin) {
+      best = { startMin: lastStart, maxCourse: ladderMax(free) };
+    }
+  };
+
+  let prevEnd = bizStart, hasPrev = false;
+  for (const b of blocks) {
+    const gapStart = hasPrev ? prevEnd + interval : bizStart;
+    const gapEnd = b.s - interval;
+    consider(gapStart, gapEnd);
+    prevEnd = b.e; hasPrev = true;
+  }
+  const finalStart = hasPrev ? prevEnd + interval : bizStart;
+  consider(finalStart, bizEnd);
+
+  return best ? { found: true, ...best } : { found: false, startMin: null, maxCourse: 0 };
+}
+
 // 最大コース表記(拡張版): ladder指定可。括弧内=上限内、括弧外=空きはあるが上限超過
 function maxTextEx(gapMax, cap, ladder) {
   const hi = Math.min(gapMax, cap);
@@ -405,7 +463,7 @@ if (typeof module !== "undefined") {
     parseIntervalMinutes, tryFindEarliestSlot, maxText, sanName, padName,
     calcEnd, calcTotal, findOverlaps, isOverShiftEnd, holdCellsToRanges, normAttendance,
     reportFormatLine, buildReport, levenshtein, therapistMatches, buildTherapistMemo,
-    findSlotForCourse, maxTextEx
+    findSlotForCourse, maxTextEx, findLastSlotForCourse
   };
 }
 if (typeof window === "undefined") {
@@ -970,13 +1028,16 @@ document.getElementById("btnSlotSearch").addEventListener("click", () => {
   const present = presentTherapists();
   if (present.length === 0) { alert("先に出勤登録をしてください。"); return; }
   document.getElementById("slotTime").value = "";
+  slotMode = "first";
   slotArea = "全";
   buildAreaSeg("slotArea", "全");
   document.getElementById("slotResult").innerHTML =
     `<div class="sq-empty">時刻とコースを指定して「検索」を押してください。<br>時刻が空白の場合は現在からの最短を検索します。</div>`;
   openSheet(slotSheet);
 });
-document.getElementById("slotRun").addEventListener("click", runSlotSearch);
+let slotMode = "first"; // first=最短 / last=ラスト枠
+document.getElementById("slotRun").addEventListener("click", () => { slotMode = "first"; runSlotSearch(); });
+document.getElementById("slotLast").addEventListener("click", () => { slotMode = "last"; runSlotSearch(); });
 document.getElementById("slotTime").addEventListener("blur", () => {
   const el = document.getElementById("slotTime");
   if (el.value.trim() === "") return;
@@ -1004,7 +1065,9 @@ function runSlotSearch() {
       .map(r => ({ s: r.start, e: r.end }));
     const set = state.holdCells[t.id];
     if (set && set.size) blocks.push(...holdCellsToRanges(set));
-    const f = findSlotForCourse(a, blocks, baseMin, interval, course, SEARCH_COURSES, CFG.calc.prep);
+    const f = slotMode === "last"
+      ? findLastSlotForCourse(a, blocks, baseMin, interval, course, SEARCH_COURSES, CFG.calc.prep)
+      : findSlotForCourse(a, blocks, baseMin, interval, course, SEARCH_COURSES, CFG.calc.prep);
     rows.push({
       therapistId: t.id, name: t.name, cap: t.maxCourse ?? 120,
       startMin: f.found ? f.startMin : null,
@@ -1012,12 +1075,17 @@ function runSlotSearch() {
       ok: f.found && (f.found ? f.startMin >= baseMin : false)
     });
   }
-  rows.sort((x, y) => (x.ok ? 0 : 1) - (y.ok ? 0 : 1) || (x.startMin ?? 1e9) - (y.startMin ?? 1e9));
+  if (slotMode === "last") {
+    rows.sort((x, y) => (x.ok ? 0 : 1) - (y.ok ? 0 : 1) || (y.startMin ?? -1) - (x.startMin ?? -1));
+  } else {
+    rows.sort((x, y) => (x.ok ? 0 : 1) - (y.ok ? 0 : 1) || (x.startMin ?? 1e9) - (y.startMin ?? 1e9));
+  }
 
   const el = document.getElementById("slotResult");
   el.innerHTML = "";
   const table = document.createElement("table");
-  table.innerHTML = `<thead><tr><th>セラピスト</th><th>最短開始</th><th>最大対応コース</th></tr></thead>`;
+  const headLabel = slotMode === "last" ? "ラスト開始" : "最短開始";
+  table.innerHTML = `<thead><tr><th>セラピスト</th><th>${headLabel}</th><th>最大対応コース</th></tr></thead>`;
   const tb = document.createElement("tbody");
   for (const r of rows) {
     const tr = document.createElement("tr");
