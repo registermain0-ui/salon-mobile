@@ -1,5 +1,5 @@
 /* サロン受付 M-V1 Service Worker: 完全オフライン動作用 */
-const CACHE = "este-mobile-mv8-2";
+const CACHE = "este-mobile-mv9-1";
 const ASSETS = [
   "./",
   "./index.html",
@@ -25,6 +25,8 @@ self.addEventListener("activate", e => {
 // キャッシュ優先(オフライン最優先)。ネットに繋がった時は裏で更新。
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
+  // 同期API等の外部通信はキャッシュしない(常にネットワークへ)
+  if (new URL(e.request.url).origin !== self.location.origin) return;
   e.respondWith(
     caches.match(e.request, { ignoreSearch: true }).then(cached => {
       const fetched = fetch(e.request).then(res => {

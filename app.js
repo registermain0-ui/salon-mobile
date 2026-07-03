@@ -14,7 +14,7 @@ const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
 
-const APP_VERSION = "M-V8.1";
+const APP_VERSION = "M-V9";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -1844,14 +1844,232 @@ document.getElementById("setSave").addEventListener("click", () => {
   toast("設定を保存しました");
 });
 
-/* ================= データ移行(エクスポート/インポート) ================= */
-document.getElementById("btnMenu").addEventListener("click", () => openSheet(document.getElementById("menuSheet")));
-function buildExportMd() {
+/* ================= クラウド同期(GitHub) ================= */
+const SYNC_PATH = "este-data.json";
+function loadSyncConfig() { return LS.get("este.sync", null); }
+function saveSyncConfig(c) { LS.set("este.sync", c); }
+function loadSyncState() { return LS.get("este.syncState", null); }
+function saveSyncState(s) { LS.set("este.syncState", s); }
+
+function collectDataDump() {
   const dump = {};
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
-    if (k && k.startsWith("este.")) dump[k] = localStorage.getItem(k);
+    if (!k || !k.startsWith("este.")) continue;
+    if (k === "este.sync" || k === "este.syncState") continue; // トークン等は預けない
+    dump[k] = localStorage.getItem(k);
   }
+  return dump;
+}
+function applyDataDump(dump) {
+  // 同期設定以外の este.* を置き換え
+  const keep = {};
+  for (const k of ["este.sync", "este.syncState"]) {
+    const v = localStorage.getItem(k);
+    if (v != null) keep[k] = v;
+  }
+  const del = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith("este.")) del.push(k);
+  }
+  for (const k of del) localStorage.removeItem(k);
+  for (const [k, v] of Object.entries(keep)) localStorage.setItem(k, v);
+  for (const [k, v] of Object.entries(dump)) localStorage.setItem(k, v);
+  state.therapists = loadTherapists();
+  CFG = loadSettings();
+  refreshStaffChip();
+  reloadDate();
+}
+function localChangedSince(ts) {
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith("este.meta.")) continue;
+    const v = Number(localStorage.getItem(k));
+    if (Number.isFinite(v) && v > ts) return true;
+  }
+  return false;
+}
+// UTF-8 <-> base64
+function b64EncodeUtf8(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = "";
+  const CH = 0x8000;
+  for (let i = 0; i < bytes.length; i += CH) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CH));
+  }
+  return btoa(bin);
+}
+function b64DecodeUtf8(b64) {
+  const bin = atob(b64.replace(/\s/g, ""));
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+function ghHeaders(cfg) {
+  return {
+    "Authorization": "Bearer " + cfg.token,
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28"
+  };
+}
+function ghUrl(cfg) {
+  return `https://api.github.com/repos/${cfg.repo}/contents/${SYNC_PATH}`;
+}
+// クラウドの現状取得: {exists, sha, payload} / 認証エラー等はthrow
+async function cloudFetch(cfg) {
+  const res = await fetch(ghUrl(cfg), { headers: ghHeaders(cfg), cache: "no-store" });
+  if (res.status === 404) return { exists: false, sha: null, payload: null };
+  if (res.status === 401 || res.status === 403) throw new Error("認証エラー: トークンを確認してください");
+  if (!res.ok) throw new Error("取得失敗: HTTP " + res.status);
+  const obj = await res.json();
+  let payload = null;
+  try { payload = JSON.parse(b64DecodeUtf8(obj.content || "")); } catch { payload = null; }
+  return { exists: true, sha: obj.sha, payload };
+}
+async function cloudPut(cfg, payload, sha) {
+  const body = {
+    message: `este-mobile deposit ${new Date().toISOString()}`,
+    content: b64EncodeUtf8(JSON.stringify(payload))
+  };
+  if (sha) body.sha = sha;
+  const res = await fetch(ghUrl(cfg), {
+    method: "PUT", headers: { ...ghHeaders(cfg), "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  if (res.status === 401 || res.status === 403) throw new Error("認証エラー: トークンを確認してください");
+  if (res.status === 409 || res.status === 422) throw new Error("競合が発生しました。もう一度「預ける」を押してください");
+  if (!res.ok) throw new Error("保存失敗: HTTP " + res.status);
+}
+function requireSyncConfig() {
+  const cfg = loadSyncConfig();
+  if (!cfg || !cfg.token || !cfg.repo) {
+    closeSheets();
+    openSyncConfig();
+    return null;
+  }
+  return cfg;
+}
+
+// ☁ 預ける
+document.getElementById("cloudPush").addEventListener("click", async () => {
+  const cfg = requireSyncConfig();
+  if (!cfg) return;
+  const btn = document.getElementById("cloudPush");
+  btn.disabled = true;
+  try {
+    const cur = await cloudFetch(cfg);
+    const st = loadSyncState() || { lastCloudSeen: 0, lastSyncAt: 0 };
+    if (cur.exists && cur.payload && Number(cur.payload.exportedAt || 0) > Number(st.lastCloudSeen || 0)) {
+      if (!confirm("クラウドに別の端末から預けられた新しいデータがあります。\nこの端末の内容で上書きして預けますか？")) { btn.disabled = false; return; }
+    }
+    const payload = { app: "este-mobile", version: 2, exportedAt: Date.now(), data: collectDataDump() };
+    await cloudPut(cfg, payload, cur.sha);
+    saveSyncState({ lastCloudSeen: payload.exportedAt, lastSyncAt: Date.now() });
+    refreshSyncInfo();
+    closeSheets();
+    toast("☁ 預けました");
+  } catch (e) {
+    alert("預けられませんでした。\n" + e.message);
+  }
+  btn.disabled = false;
+});
+
+// ☁ 受け取る(手動)
+document.getElementById("cloudPull").addEventListener("click", async () => {
+  const cfg = requireSyncConfig();
+  if (!cfg) return;
+  const btn = document.getElementById("cloudPull");
+  btn.disabled = true;
+  try {
+    const cur = await cloudFetch(cfg);
+    if (!cur.exists || !cur.payload || cur.payload.app !== "este-mobile" || !cur.payload.data) {
+      alert("クラウドに預けたデータがまだありません。先に「預ける」を実行してください。");
+      btn.disabled = false; return;
+    }
+    if (!confirm("この端末のデータをクラウドの内容で上書きします。よろしいですか？")) { btn.disabled = false; return; }
+    applyDataDump(cur.payload.data);
+    saveSyncState({ lastCloudSeen: Number(cur.payload.exportedAt || 0), lastSyncAt: Date.now() });
+    refreshSyncInfo();
+    closeSheets();
+    toast("☁ 受け取りました");
+  } catch (e) {
+    alert("受け取れませんでした。\n" + e.message);
+  }
+  btn.disabled = false;
+});
+
+// 起動時の自動受信
+async function autoReceive() {
+  const cfg = loadSyncConfig();
+  const st = loadSyncState();
+  if (!cfg || !cfg.token || !cfg.repo || !st) return; // 一度も同期していない端末では自動適用しない
+  if (navigator.onLine === false) return;
+  try {
+    const cur = await cloudFetch(cfg);
+    if (!cur.exists || !cur.payload || cur.payload.app !== "este-mobile" || !cur.payload.data) return;
+    const cloudAt = Number(cur.payload.exportedAt || 0);
+    if (cloudAt <= Number(st.lastCloudSeen || 0)) return; // 新しいものなし
+    if (localChangedSince(Number(st.lastSyncAt || 0))) {
+      if (!confirm("クラウドに新しいデータがあります。\nこの端末には未預けの変更があります。クラウドの内容で上書きしますか？\n(キャンセル=この端末のまま。あとで「預ける」か「受け取る」を選べます)")) return;
+    }
+    applyDataDump(cur.payload.data);
+    saveSyncState({ lastCloudSeen: cloudAt, lastSyncAt: Date.now() });
+    refreshSyncInfo();
+    toast("☁ クラウドの最新データを受信しました");
+  } catch (e) {
+    // オフライン等は黙って続行(オフラインファースト)
+    console.warn("auto receive skipped:", e.message);
+  }
+}
+
+/* ---- 同期設定シート ---- */
+function openSyncConfig() {
+  const cfg = loadSyncConfig() || { token: "", repo: "" };
+  document.getElementById("syRepo").value = cfg.repo || "";
+  document.getElementById("syToken").value = cfg.token || "";
+  refreshSyncInfo();
+  openSheet(document.getElementById("syncSheet"));
+}
+document.getElementById("openSyncConfig").addEventListener("click", () => { closeSheets(); openSyncConfig(); });
+function refreshSyncInfo() {
+  const el = document.getElementById("syInfo");
+  if (!el) return;
+  const st = loadSyncState();
+  el.textContent = st && st.lastSyncAt
+    ? "最終同期: " + new Date(st.lastSyncAt).toLocaleString("ja-JP")
+    : "まだ同期していません";
+}
+document.getElementById("syTest").addEventListener("click", async () => {
+  const repo = document.getElementById("syRepo").value.trim();
+  const token = document.getElementById("syToken").value.trim();
+  if (!repo.includes("/") || !token) { alert("リポジトリ名(ユーザー名/リポジトリ名)とトークンを入力してください。"); return; }
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}`, {
+      headers: { "Authorization": "Bearer " + token, "Accept": "application/vnd.github+json" }, cache: "no-store"
+    });
+    if (res.status === 401 || res.status === 403) throw new Error("認証エラー: トークンが無効か権限不足です");
+    if (res.status === 404) throw new Error("リポジトリが見つかりません(名前の誤り、またはトークンにこのリポジトリへの権限が無い)");
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const meta = await res.json();
+    alert(meta.private ? "接続OK(非公開リポジトリ)" : "接続OKですが、このリポジトリは【公開】です。\n業務データを預けるので、非公開(Private)リポジトリの使用を強くおすすめします。");
+  } catch (e) {
+    alert("接続テスト失敗: " + e.message);
+  }
+});
+document.getElementById("sySave").addEventListener("click", () => {
+  const repo = document.getElementById("syRepo").value.trim();
+  const token = document.getElementById("syToken").value.trim();
+  if (!repo.includes("/") || !token) { alert("リポジトリ名(ユーザー名/リポジトリ名)とトークンを入力してください。"); return; }
+  saveSyncConfig({ repo, token });
+  closeSheets();
+  toast("同期設定を保存しました");
+});
+
+/* ================= データ移行(エクスポート/インポート) ================= */
+document.getElementById("btnMenu").addEventListener("click", () => openSheet(document.getElementById("menuSheet")));
+function buildExportMd() {
+  const dump = collectDataDump(); // 同期トークン等は含めない
   const now = new Date();
   const stamp = `${toDateKey(now)} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
   const payload = JSON.stringify({ app: "este-mobile", version: 2, exportedAt: Date.now(), data: dump });
@@ -1893,9 +2111,13 @@ document.getElementById("impFile").addEventListener("change", async e => {
     obj = JSON.parse(m ? m[1].trim() : text);
     if (!obj || obj.app !== "este-mobile" || !obj.data) throw new Error("形式が違います");
     if (!confirm("インポートすると同じ項目は上書きされます。実行しますか？")) return;
-    for (const [k, v] of Object.entries(obj.data)) localStorage.setItem(k, v);
+    for (const [k, v] of Object.entries(obj.data)) {
+      if (k === "este.sync" || k === "este.syncState") continue;
+      localStorage.setItem(k, v);
+    }
     state.therapists = loadTherapists();
     CFG = loadSettings();
+    refreshStaffChip();
     reloadDate();
     closeSheets();
     toast("インポートしました");
@@ -1935,6 +2157,9 @@ setTimeout(() => document.getElementById("btnNow").click(), 50);
 setInterval(() => { if (!formPage.classList.contains("open")) render(); }, 60000);
 
 refreshStaffChip();
+
+// クラウド自動受信(設定済み端末のみ・オフライン時はスキップ)
+setTimeout(autoReceive, 300);
 
 // バージョン表示
 {
