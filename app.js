@@ -14,7 +14,7 @@ const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
 
-const APP_VERSION = "M-V9";
+const APP_VERSION = "M-V10";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -842,68 +842,126 @@ document.getElementById("btnNow").addEventListener("click", () => {
 const attSheet = document.getElementById("attSheet");
 document.getElementById("btnAttendance").addEventListener("click", () => { closeSheets(); openAttendance(); });
 
+/* 出勤登録: 検索して追加方式(M-V10)
+ * 上部の検索(部分一致+あいまい一致)から候補をタップして行を追加する。
+ * 追加済みの行: 名前(固定) / 出勤 / 終了 / エリア / 削除 */
+function attAddedIds() {
+  return new Set([...document.querySelectorAll("#attRows .att-row")]
+    .map(tr => Number(tr.dataset.tid)));
+}
+function attRefreshEmpty() {
+  const empty = document.getElementById("attEmpty");
+  empty.classList.toggle("show", document.querySelectorAll("#attRows .att-row").length === 0);
+}
+function attAddRow(t, cur, focusStart) {
+  const body = document.getElementById("attRows");
+  const tr = document.createElement("div");
+  tr.className = "att-row";
+  tr.dataset.tid = String(t.id);
+  const nm = document.createElement("div");
+  nm.className = "nm-label";
+  nm.textContent = t.name;
+  const s = document.createElement("input");
+  s.placeholder = "出勤"; s.inputMode = "numeric"; s.className = "tm";
+  const e = document.createElement("input");
+  e.placeholder = "終了"; e.inputMode = "numeric"; e.className = "tm";
+  const ar = document.createElement("select");
+  ar.className = "ar";
+  ar.innerHTML = AREAS().map(v => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+  if (cur) {
+    s.value = fmtBiz(cur.startMin); e.value = fmtBiz(cur.endMin);
+    if (AREAS().includes(cur.area)) ar.value = cur.area;
+  }
+  [s, e].forEach(inp => inp.addEventListener("blur", () => {
+    const v = parseBizTime(inp.value);
+    if (inp.value.trim() !== "") inp.value = v == null ? inp.value : fmtBiz(v);
+  }));
+  const del = document.createElement("button");
+  del.className = "x-del";
+  del.textContent = "×";
+  del.addEventListener("click", () => {
+    tr.remove();
+    attRefreshEmpty();
+    renderAttSuggestions(); // 候補に戻す
+  });
+  tr.append(nm, s, e, ar, del);
+  body.appendChild(tr);
+  attRefreshEmpty();
+  if (focusStart) s.focus();
+}
+function renderAttSuggestions() {
+  const q = document.getElementById("attSearch").value.trim();
+  const sug = document.getElementById("attSug");
+  if (q === "") { sug.classList.remove("show"); sug.innerHTML = ""; return; }
+  const added = attAddedIds();
+  const hits = state.therapists
+    .filter(t => !added.has(t.id) && therapistMatches(t.name, q))
+    .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase(), "ja"))
+    .slice(0, 8);
+  sug.innerHTML = "";
+  for (const t of hits) {
+    const b = document.createElement("button");
+    b.textContent = t.name;
+    b.addEventListener("click", () => {
+      attAddRow(t, null, true);
+      document.getElementById("attSearch").value = "";
+      renderAttSuggestions();
+    });
+    sug.appendChild(b);
+  }
+  // 完全一致が無ければ新規登録を提示(未追加の同名がいない場合)
+  const exact = state.therapists.some(t => t.name === q);
+  if (!exact) {
+    const b = document.createElement("button");
+    b.className = "new";
+    b.textContent = `＋「${q}」を新規登録して追加`;
+    b.addEventListener("click", () => {
+      const t = {
+        id: nextTherapistId(), name: q, nominationFee: 1000, maxCourse: 120,
+        caution: "", interval: "20", memo: ""
+      };
+      state.therapists.push(t);
+      saveTherapists(state.therapists);
+      attAddRow(t, null, true);
+      document.getElementById("attSearch").value = "";
+      renderAttSuggestions();
+      toast(`${q} を登録しました`);
+    });
+    sug.appendChild(b);
+  }
+  sug.classList.toggle("show", sug.children.length > 0);
+}
+document.getElementById("attSearch").addEventListener("input", renderAttSuggestions);
+
 function openAttendance() {
+  document.getElementById("attSearch").value = "";
+  document.getElementById("attSug").classList.remove("show");
   const body = document.getElementById("attRows");
   body.innerHTML = "";
-  const rows = 21;
-  for (let i = 0; i < rows; i++) {
-    const cur = state.attendance[i];
-    const tr = document.createElement("div");
-    tr.className = "att-row";
-    const sel = document.createElement("select");
-    sel.innerHTML = `<option value=""></option>` + state.therapists
-      .slice().sort((a, b) => a.name.localeCompare(b.name, "ja"))
-      .map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
-    if (cur) sel.value = String(cur.therapistId);
-    const s = document.createElement("input");
-    s.placeholder = "出勤"; s.inputMode = "numeric"; s.className = "tm";
-    const e = document.createElement("input");
-    e.placeholder = "終了"; e.inputMode = "numeric"; e.className = "tm";
-    const ar = document.createElement("select");
-    ar.className = "ar";
-    ar.innerHTML = AREAS().map(v => `<option value="${v}">${v}</option>`).join("");
-    if (cur) {
-      s.value = fmtBiz(cur.startMin); e.value = fmtBiz(cur.endMin);
-      if (AREAS().includes(cur.area)) ar.value = cur.area;
-    }
-    [s, e].forEach(inp => inp.addEventListener("blur", () => {
-      const v = parseBizTime(inp.value);
-      inp.value = v == null ? "" : fmtBiz(v);
-      inp.classList.toggle("err", inp.value === "" && String(inp.dataset.raw || "").trim() !== "");
-    }));
-    tr.append(sel, s, e, ar);
-    body.appendChild(tr);
+  for (const cur of state.attendance) {
+    const t = state.therapists.find(x => x.id === cur.therapistId);
+    if (t) attAddRow(t, cur, false);
   }
+  attRefreshEmpty();
   openSheet(attSheet);
 }
 document.getElementById("attSave").addEventListener("click", () => {
   const out = [];
-  const seen = new Set();
+  const errs = [];
   for (const tr of document.querySelectorAll("#attRows .att-row")) {
-    const [sel, s, e, ar] = tr.children;
-    if (!sel.value) continue;
-    const tid = Number(sel.value);
-    if (seen.has(tid)) { alert("同じセラピストが複数行に選択されています。"); return; }
-    seen.add(tid);
+    const tid = Number(tr.dataset.tid);
+    const [, s, e, ar] = tr.children;
     const sv = parseBizTime(s.value), ev = parseBizTime(e.value);
-    if (sv == null || ev == null) { alert("出勤・終了時刻を入力してください。例: 12:00 / 26:30"); return; }
+    const t = state.therapists.find(x => x.id === tid);
+    const nm = t ? t.name : "?";
+    if (sv == null || ev == null) { errs.push(`${nm}: 出勤・終了時刻を入力してください(例: 1200 / 2630)`); continue; }
     out.push({ therapistId: tid, startMin: sv, endMin: ev, area: ar.value });
   }
+  if (errs.length) { alert(errs.join("\n")); return; }
   state.attendance = out;
   saveAttendance(state.dateKey, out);
   closeSheets();
   render();
-});
-document.getElementById("attAddTherapist").addEventListener("click", () => {
-  const name = prompt("新しいセラピスト名を入力してください");
-  if (!name || !name.trim()) return;
-  const t = {
-    id: nextTherapistId(), name: name.trim(), nominationFee: 1000, maxCourse: 120,
-    caution: "", interval: "20", memo: ""
-  };
-  state.therapists.push(t);
-  saveTherapists(state.therapists);
-  openAttendance(); // 選択肢を更新して再表示
 });
 
 /* ================= 最短取得 ================= */

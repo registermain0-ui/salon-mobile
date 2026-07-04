@@ -223,6 +223,21 @@
   .cloud-btn{border-color:#3a6ea5 !important;color:#1e3a5f;background:#f2f7ff !important;font-weight:700}
   .sync-body{padding:8px 14px}
 
+  /* 出勤登録: 検索追加方式 */
+  .att-search-wrap{position:relative;padding:0 14px 8px;flex:none}
+  #attSearch{width:100%;border:1px solid #bbb;border-radius:8px;padding:11px 12px;font-size:15px}
+  .att-sug{position:absolute;left:14px;right:14px;top:100%;margin-top:-6px;background:#fff;border:1px solid #bbb;border-radius:8px;box-shadow:0 6px 16px rgba(0,0,0,.18);z-index:30;display:none;max-height:240px;overflow-y:auto}
+  .att-sug.show{display:block}
+  .att-sug button{display:block;width:100%;text-align:left;border:none;background:none;padding:12px 14px;font-size:15px;border-bottom:1px solid #eee}
+  .att-sug button:last-child{border-bottom:none}
+  .att-sug button.new{color:var(--accent);font-weight:700}
+  .att-row .nm-label{flex:1;min-width:0;font-size:14px;padding:9px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .att-head .ah-nm{flex:1}
+  .att-head .ah-x{width:34px;flex:none}
+  .att-row .x-del{width:34px;height:38px;flex:none;border:1px solid #ccc;background:#fff;border-radius:6px;color:#c00;font-size:15px}
+  .att-empty{padding:22px;text-align:center;color:var(--sub);font-size:13px;display:none}
+  .att-empty.show{display:block}
+
   /* トースト */
   #toast{position:fixed;left:50%;bottom:80px;transform:translateX(-50%) translateY(20px);background:rgba(30,30,30,.9);color:#fff;font-size:13px;padding:10px 18px;border-radius:20px;opacity:0;pointer-events:none;transition:.25s;z-index:50}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
@@ -313,12 +328,16 @@
 <div class="sheet" id="attSheet">
   <div class="grip"></div>
   <h2>出勤登録<button class="sheet-close">×</button></h2>
+  <div class="att-search-wrap">
+    <input id="attSearch" placeholder="セラピスト名で検索して追加" autocomplete="off">
+    <div class="att-sug" id="attSug"></div>
+  </div>
   <div class="att-body">
-    <div class="att-head"><span>セラピスト</span><span>出勤</span><span>終了</span><span class="ah-ar">ｴﾘｱ</span></div>
+    <div class="att-head"><span class="ah-nm">セラピスト</span><span>出勤</span><span>終了</span><span class="ah-ar">ｴﾘｱ</span><span class="ah-x"></span></div>
     <div id="attRows"></div>
+    <div class="att-empty" id="attEmpty">上の検索からセラピストを追加してください。</div>
   </div>
   <div class="sheet-foot">
-    <button class="sub" id="attAddTherapist">+ 新規セラピスト</button>
     <button class="main" id="attSave">保存</button>
   </div>
 </div>
