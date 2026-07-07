@@ -14,7 +14,7 @@ const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
 
-const APP_VERSION = "M-V10";
+const APP_VERSION = "M-V11";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -113,30 +113,31 @@ function tryFindEarliestSlot(a, blocksIn, nowMin, interval, prep = 15) {
     .map(b => {
       let s = normSpan(b.s), e = normSpan(b.e);
       if (e <= s) e += 24 * 60;
-      return { s, e };
+      return { s, e, hold: !!b.hold };
     })
     .sort((x, y) => x.s - y.s);
 
-  // 状態別基準
+  // 状態別基準(V3.9: 仮押さえはインターバル無しで押し上げ)
   let stateStart;
   const inService = blocks.find(b => b.s <= nowMin && nowMin < b.e);
   if (nowMin < bizStart) {
     const p = nowMin + prep;
     stateStart = p > bizStart ? p : bizStart;
   } else if (inService) {
-    stateStart = inService.e + interval;
+    stateStart = inService.e + (inService.hold ? 0 : interval);
   } else {
     stateStart = nowMin + prep;
     for (const b of blocks) {
-      if (stateStart >= b.s && stateStart < b.e + interval) stateStart = b.e + interval;
+      const guardEnd = b.e + (b.hold ? 0 : interval);
+      if (stateStart >= b.s && stateStart < guardEnd) stateStart = guardEnd;
     }
   }
 
-  // ギャップ探索
-  let prevEnd = bizStart, hasPrev = false;
+  // ギャップ探索(予約はインターバル控除、仮押さえは控除なし)
+  let prevEnd = bizStart, prevHold = false, hasPrev = false;
   for (const b of blocks) {
-    const gapStart = hasPrev ? prevEnd + interval : bizStart;
-    const gapEnd = b.s - interval;
+    const gapStart = hasPrev ? prevEnd + (prevHold ? 0 : interval) : bizStart;
+    const gapEnd = b.s - (b.hold ? 0 : interval);
     const start = Math.max(gapStart, stateStart);
     if (start < gapEnd) {
       const free = Math.floor(gapEnd - start);
@@ -145,9 +146,9 @@ function tryFindEarliestSlot(a, blocksIn, nowMin, interval, prep = 15) {
         return { found: true, startMin: start, maxCourse: max };
       }
     }
-    prevEnd = b.e; hasPrev = true;
+    prevEnd = b.e; prevHold = b.hold; hasPrev = true;
   }
-  let finalStart = hasPrev ? prevEnd + interval : bizStart;
+  let finalStart = hasPrev ? prevEnd + (prevHold ? 0 : interval) : bizStart;
   finalStart = Math.max(finalStart, stateStart);
   if (finalStart < bizEnd) {
     const free = Math.floor(bizEnd - finalStart);
@@ -160,15 +161,16 @@ function tryFindEarliestSlot(a, blocksIn, nowMin, interval, prep = 15) {
 }
 
 /* 空枠検索: 指定コースが入る最初の空きを探す(状態基準は tryFindEarliestSlot と同一)
- * ladder: 最大対応コース算出用の候補リスト
- * 戻り: {found, startMin, maxCourse(そのギャップに入る最大コース)} */
+ * V3.9: 仮押さえ(hold=true)はインターバル無し。maxCourse は検索コースそのものを返す。
+ * ladder引数は表示用(maxTextEx)に残すが、maxCourse算出には使わない。
+ * 戻り: {found, startMin, maxCourse(=courseMin)} */
 function findSlotForCourse(a, blocksIn, nowMin, interval, courseMin, ladder, prep = 15) {
   const { s: bizStart, e: bizEnd } = normAttendance(a);
   const blocks = blocksIn
     .map(b => {
       let s = normSpan(b.s), e = normSpan(b.e);
       if (e <= s) e += 24 * 60;
-      return { s, e };
+      return { s, e, hold: !!b.hold };
     })
     .sort((x, y) => x.s - y.s);
 
@@ -178,39 +180,34 @@ function findSlotForCourse(a, blocksIn, nowMin, interval, courseMin, ladder, pre
     const p = nowMin + prep;
     stateStart = p > bizStart ? p : bizStart;
   } else if (inService) {
-    stateStart = inService.e + interval;
+    stateStart = inService.e + (inService.hold ? 0 : interval);
   } else {
     stateStart = nowMin + prep;
     for (const b of blocks) {
-      if (stateStart >= b.s && stateStart < b.e + interval) stateStart = b.e + interval;
+      const guardEnd = b.e + (b.hold ? 0 : interval);
+      if (stateStart >= b.s && stateStart < guardEnd) stateStart = guardEnd;
     }
   }
 
-  const ladderMax = free => {
-    let m = 0;
-    for (const c of ladder) if (c <= free) m = c;
-    return m;
-  };
-
-  let prevEnd = bizStart, hasPrev = false;
+  let prevEnd = bizStart, prevHold = false, hasPrev = false;
   for (const b of blocks) {
-    const gapStart = hasPrev ? prevEnd + interval : bizStart;
-    const gapEnd = b.s - interval;
+    const gapStart = hasPrev ? prevEnd + (prevHold ? 0 : interval) : bizStart;
+    const gapEnd = b.s - (b.hold ? 0 : interval);
     const start = Math.max(gapStart, stateStart);
     if (start < gapEnd) {
       const free = Math.floor(gapEnd - start);
       if (free >= courseMin) {
-        return { found: true, startMin: start, maxCourse: ladderMax(free) };
+        return { found: true, startMin: start, maxCourse: courseMin };
       }
     }
-    prevEnd = b.e; hasPrev = true;
+    prevEnd = b.e; prevHold = b.hold; hasPrev = true;
   }
-  let finalStart = hasPrev ? prevEnd + interval : bizStart;
+  let finalStart = hasPrev ? prevEnd + (prevHold ? 0 : interval) : bizStart;
   finalStart = Math.max(finalStart, stateStart);
   if (finalStart < bizEnd) {
     const free = Math.floor(bizEnd - finalStart);
     if (free >= courseMin) {
-      return { found: true, startMin: finalStart, maxCourse: ladderMax(free) };
+      return { found: true, startMin: finalStart, maxCourse: courseMin };
     }
   }
   return { found: false, startMin: null, maxCourse: 0 };
@@ -218,14 +215,15 @@ function findSlotForCourse(a, blocksIn, nowMin, interval, courseMin, ladder, pre
 
 /* ラスト枠検索: 指定コースが取れる「一番遅い開始時刻」を探す
  * 下限は最短検索と同じ状態基準(準備時間・施術中・インターバル)を適用
- * 戻り: {found, startMin(最遅開始), maxCourse(そのギャップの最大対応コース)} */
+ * V3.9: 仮押さえ(hold=true)はインターバル無し。maxCourse は検索コースそのものを返す。
+ * 戻り: {found, startMin(最遅開始), maxCourse(=courseMin)} */
 function findLastSlotForCourse(a, blocksIn, nowMin, interval, courseMin, ladder, prep = 15) {
   const { s: bizStart, e: bizEnd } = normAttendance(a);
   const blocks = blocksIn
     .map(b => {
       let s = normSpan(b.s), e = normSpan(b.e);
       if (e <= s) e += 24 * 60;
-      return { s, e };
+      return { s, e, hold: !!b.hold };
     })
     .sort((x, y) => x.s - y.s);
 
@@ -235,21 +233,16 @@ function findLastSlotForCourse(a, blocksIn, nowMin, interval, courseMin, ladder,
     const p = nowMin + prep;
     stateStart = p > bizStart ? p : bizStart;
   } else if (inService) {
-    stateStart = inService.e + interval;
+    stateStart = inService.e + (inService.hold ? 0 : interval);
   } else {
     stateStart = nowMin + prep;
     for (const b of blocks) {
-      if (stateStart >= b.s && stateStart < b.e + interval) stateStart = b.e + interval;
+      const guardEnd = b.e + (b.hold ? 0 : interval);
+      if (stateStart >= b.s && stateStart < guardEnd) stateStart = guardEnd;
     }
   }
 
-  const ladderMax = free => {
-    let m = 0;
-    for (const c of ladder) if (c <= free) m = c;
-    return m;
-  };
-
-  let best = null; // {startMin, maxCourse}
+  let best = null; // {startMin}
   const consider = (gapStart, gapEnd) => {
     const start = Math.max(gapStart, stateStart);
     if (start >= gapEnd) return;
@@ -257,23 +250,22 @@ function findLastSlotForCourse(a, blocksIn, nowMin, interval, courseMin, ladder,
     if (free < courseMin) return;
     const lastStart = gapEnd - courseMin; // このギャップでの最遅開始
     if (!best || lastStart > best.startMin) {
-      best = { startMin: lastStart, maxCourse: ladderMax(free) };
+      best = { startMin: lastStart, maxCourse: courseMin };
     }
   };
 
-  let prevEnd = bizStart, hasPrev = false;
+  let prevEnd = bizStart, prevHold = false, hasPrev = false;
   for (const b of blocks) {
-    const gapStart = hasPrev ? prevEnd + interval : bizStart;
-    const gapEnd = b.s - interval;
+    const gapStart = hasPrev ? prevEnd + (prevHold ? 0 : interval) : bizStart;
+    const gapEnd = b.s - (b.hold ? 0 : interval);
     consider(gapStart, gapEnd);
-    prevEnd = b.e; hasPrev = true;
+    prevEnd = b.e; prevHold = b.hold; hasPrev = true;
   }
-  const finalStart = hasPrev ? prevEnd + interval : bizStart;
+  const finalStart = hasPrev ? prevEnd + (prevHold ? 0 : interval) : bizStart;
   consider(finalStart, bizEnd);
 
   return best ? { found: true, ...best } : { found: false, startMin: null, maxCourse: 0 };
 }
-
 // 最大コース表記(拡張版): ladder指定可。括弧内=上限内、括弧外=空きはあるが上限超過
 function maxTextEx(gapMax, cap, ladder) {
   const hi = Math.min(gapMax, cap);
@@ -661,7 +653,7 @@ function refreshSendBadge() {
 }
 
 /* ================= レンダリング ================= */
-const CELL_W = 22, ROW_H = 56, LEFT_W = 76, HEAD_H = 26;
+const CELL_W = 22, ROW_H = 56, LEFT_W = 96, HEAD_H = 26;
 const X = min => Math.round((min - BIZ_START_MIN) / MINUTE_STEP * CELL_W);
 
 function render() {
@@ -1025,9 +1017,9 @@ function computeCandidates(baseMin) {
   for (const { t, a } of presentTherapists()) {
     const interval = IV(t);
     const blocks = state.reservations.filter(r => r.therapistId === t.id)
-      .map(r => ({ s: r.start, e: r.end }));
+      .map(r => ({ s: r.start, e: r.end, hold: false }));
     const set = state.holdCells[t.id];
-    if (set && set.size) blocks.push(...holdCellsToRanges(set));
+    if (set && set.size) blocks.push(...holdCellsToRanges(set).map(rg => ({ ...rg, hold: true })));
     const f = tryFindEarliestSlot(a, blocks, baseMin, interval, CFG.calc.prep);
     out.push({
       therapistId: t.id, name: t.name, cap: t.maxCourse ?? 120,
@@ -1130,9 +1122,9 @@ function runSlotSearch() {
     if (slotArea !== "全" && a.area !== slotArea) continue; // エリアフィルタ
     const interval = IV(t);
     const blocks = state.reservations.filter(r => r.therapistId === t.id)
-      .map(r => ({ s: r.start, e: r.end }));
+      .map(r => ({ s: r.start, e: r.end, hold: false }));
     const set = state.holdCells[t.id];
-    if (set && set.size) blocks.push(...holdCellsToRanges(set));
+    if (set && set.size) blocks.push(...holdCellsToRanges(set).map(rg => ({ ...rg, hold: true })));
     const f = slotMode === "last"
       ? findLastSlotForCourse(a, blocks, baseMin, interval, course, SEARCH_COURSES, CFG.calc.prep)
       : findSlotForCourse(a, blocks, baseMin, interval, course, SEARCH_COURSES, CFG.calc.prep);
