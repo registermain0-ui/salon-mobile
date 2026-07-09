@@ -14,7 +14,7 @@ const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
 
-const APP_VERSION = "M-V11";
+const APP_VERSION = "M-V12";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -340,6 +340,104 @@ function calcTotal(prices, course, ext, discount, opPrice, applyNomFee, nominati
   return total < 0 ? 0 : total;
 }
 
+/* ★M-V12: セラピスト送信文生成(PC: SendMessageBuilder と同一仕様・同一出力)
+   変数: {開始}{終了}{分}{コース}{延長}{属性}{顧客名}{下四桁}{金額}{割引}{指名文言}{指名}{セラピスト}{OP}{メモ}
+   ・{金額} = (コース料金+延長料金+指名料) − 割引 (0未満は0・OPは含めない)
+   ・行内の既知変数がすべて空(数値0含む)ならその行を丸ごと省略
+   ・空値の変数は直後の空白(半角/全角)1文字も除去 / 連続空行は1行に / 先頭末尾の空行は除去 */
+function fmtMsgTime(min) { // PC版と同じ「9:30 / 26:30」形式(時は0埋めしない)
+  if (min == null || min < 0) return "";
+  return `${Math.floor(min / 60)}:${String(min % 60).padStart(2, "0")}`;
+}
+function resolveAttrDisplay(rules, attr, nom) {
+  for (const rule of (rules || [])) {
+    if (!rule) continue;
+    const attrOk = !rule.input || rule.input === attr;
+    const nomOk = !rule.nom || rule.nom === nom;
+    if (attrOk && nomOk) return rule.output || "";
+  }
+  return attr;
+}
+function renderSendTemplate(template, vars) {
+  const lines = String(template || "").replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  for (const line of lines) {
+    // 1周目: 既知変数の有無と空判定
+    let hasVar = false, allEmpty = true;
+    let i = 0;
+    while (i < line.length) {
+      const open = line.indexOf("{", i);
+      if (open < 0) break;
+      const close = line.indexOf("}", open + 1);
+      if (close < 0) break;
+      const name = line.slice(open + 1, close);
+      if (Object.prototype.hasOwnProperty.call(vars, name)) {
+        hasVar = true;
+        if (vars[name] !== "") allEmpty = false;
+      }
+      i = close + 1;
+    }
+    if (hasVar && allEmpty) continue; // 変数がすべて空 → 行ごと省略
+    // 2周目: 置換(空値は直後の空白1文字も除去)
+    let sb = "";
+    i = 0;
+    while (i < line.length) {
+      const open = line.indexOf("{", i);
+      if (open < 0) { sb += line.slice(i); break; }
+      const close = line.indexOf("}", open + 1);
+      if (close < 0) { sb += line.slice(i); break; }
+      sb += line.slice(i, open);
+      const name = line.slice(open + 1, close);
+      if (Object.prototype.hasOwnProperty.call(vars, name)) {
+        sb += vars[name];
+        i = close + 1;
+        if (vars[name] === "" && i < line.length && (line[i] === " " || line[i] === "　")) i++;
+      } else {
+        sb += line.slice(open, close + 1); // 未知の変数は文字通り残す
+        i = close + 1;
+      }
+    }
+    out.push(sb);
+  }
+  // 連続する空行を1行にまとめ、先頭・末尾の空行は除去
+  const collapsed = [];
+  for (const l of out) {
+    if (l === "" && collapsed.length > 0 && collapsed[collapsed.length - 1] === "") continue;
+    collapsed.push(l);
+  }
+  while (collapsed.length > 0 && collapsed[0] === "") collapsed.shift();
+  while (collapsed.length > 0 && collapsed[collapsed.length - 1] === "") collapsed.pop();
+  return collapsed.join("\n");
+}
+function buildTherapistMessage(inp, prices, fmt) {
+  const base = prices.coursePrice[inp.courseMinutes] ?? 0;
+  const unit = Math.max(1, prices.extensionUnitMinutes);
+  const extPrice = Math.floor(Math.max(0, inp.extensionMinutes || 0) / unit) * Math.max(0, prices.extensionUnitPrice);
+  const discount = Math.max(0, inp.discountAmount || 0);
+  let amount = base + extPrice + Math.max(0, inp.nominationFeeApplied || 0) - discount;
+  if (amount < 0) amount = 0;
+  const totalMinutes = Math.max(0, inp.courseMinutes || 0) + Math.max(0, inp.extensionMinutes || 0);
+  const nomPhrase = (fmt.nomPhrases || []).find(m => m.input === (inp.nominationType || ""));
+  const vars = {
+    "開始": fmtMsgTime(inp.start),
+    "終了": fmtMsgTime(inp.end),
+    "分": totalMinutes > 0 ? String(totalMinutes) : "",
+    "コース": inp.courseMinutes > 0 ? String(inp.courseMinutes) : "",
+    "延長": inp.extensionMinutes > 0 ? String(inp.extensionMinutes) : "",
+    "属性": resolveAttrDisplay(fmt.attrMap, inp.customerAttr || "", inp.nominationType || ""),
+    "顧客名": inp.customer || "",
+    "下四桁": inp.phoneLast4 || "",
+    "金額": amount > 0 ? String(amount) : "",
+    "割引": discount > 0 ? String(discount) : "",
+    "指名文言": nomPhrase ? (nomPhrase.output || "") : "",
+    "指名": inp.nominationType || "",
+    "セラピスト": inp.therapistName || "",
+    "OP": inp.opFlag || "",
+    "メモ": inp.memo || ""
+  };
+  return renderSendTemplate(fmt.therapistTemplate, vars);
+}
+
 // 重複検出(PC: FindOverlaps)
 function findOverlaps(reservations, r, editId) {
   const s = normSpan(r.start), e0 = normSpan(r.end);
@@ -486,6 +584,7 @@ const K = {
   prices: "este.prices",
   discounts: "este.discounts",
   snsFormat: "este.snsFormat",
+  sendFormat: "este.sendFormat", // ★M-V12: 送信文フォーマット(PC V4.0〜と共通・同期対象)
   seq: "este.therapistSeq"
 };
 
@@ -542,6 +641,58 @@ let CFG = null; // 起動時と設定保存時に更新
 function loadDiscounts() { return LS.get(K.discounts, [0, 1000, 2000, 3000, 5000]); }
 function loadSnsFormat() { return LS.get(K.snsFormat, { header: "", footer: "" }); }
 function saveSnsFormat(f) { LS.set(K.snsFormat, f); }
+
+/* ★M-V12: 送信文フォーマット(セラピスト向け)。PC版 V4.0〜 と同一のJSON構造・同一の出力。
+   attrMap: 属性表示ルール [{input:属性, nom:指名, output:表示}] 空欄は任意一致・上から先勝ち
+   nomPhrases: 指名文言 [{input:指名種別, output:文言}] */
+const DEFAULT_SEND_FORMAT = {
+  therapistTemplate:
+    "ご予約いただきまして、\n" +
+    "{開始}〜{分}分\n" +
+    "{属性}　{顧客名}様\n" +
+    "{金額}円+オプション確認お願いします！\n" +
+    "\n" +
+    "{割引}円割引適用になります🙏\n" +
+    "{指名文言}\n" +
+    "よろしくお願いいたします🙏",
+  attrMap: [
+    { input: "", nom: "本", output: "本指名" },
+    { input: "", nom: "姫", output: "姫予約" },
+    { input: "R", nom: "", output: "リピーター" },
+    { input: "N", nom: "", output: "新規" }
+  ],
+  nomPhrases: [
+    { input: "本", output: "本指名様、ありがとうございます！" }
+  ]
+};
+function loadSendFormat() {
+  const raw = LS.get(K.sendFormat, null);
+  const d = JSON.parse(JSON.stringify(DEFAULT_SEND_FORMAT));
+  if (!raw || typeof raw !== "object") return d;
+  const c = {
+    therapistTemplate: typeof raw.therapistTemplate === "string" && raw.therapistTemplate.trim()
+      ? raw.therapistTemplate : d.therapistTemplate,
+    attrMap: Array.isArray(raw.attrMap) ? raw.attrMap : [],
+    nomPhrases: Array.isArray(raw.nomPhrases) ? raw.nomPhrases : []
+  };
+  // 正規化(PC: NormalizeSendFormat と同一): 3項目すべて空の行は除去
+  c.attrMap = c.attrMap
+    .filter(r => r && typeof r === "object")
+    .map(r => ({ input: String(r.input ?? "").trim(), nom: String(r.nom ?? "").trim(), output: String(r.output ?? "").trim() }))
+    .filter(r => r.input !== "" || r.nom !== "" || r.output !== "");
+  c.nomPhrases = c.nomPhrases
+    .filter(m => m && typeof m === "object")
+    .map(m => ({ input: String(m.input ?? "").trim(), output: String(m.output ?? "").trim() }))
+    .filter(m => m.input !== "");
+  // PC V4.0/4.1 の旧初期値(R/Nの2行のみ)なら新初期値へ自動アップグレード(PC: LoadSendFormat と同一)
+  if (c.attrMap.length === 2 &&
+      c.attrMap[0].input === "R" && c.attrMap[0].nom === "" && c.attrMap[0].output === "リピーター" &&
+      c.attrMap[1].input === "N" && c.attrMap[1].nom === "" && c.attrMap[1].output === "新規") {
+    c.attrMap = JSON.parse(JSON.stringify(d.attrMap));
+  }
+  return c;
+}
+function saveSendFormat(f) { LS.set(K.sendFormat, f); touchMeta(K.sendFormat); }
 function nextTherapistId() {
   const n = LS.get(K.seq, 0) + 1; LS.set(K.seq, n); return n;
 }
@@ -1290,6 +1441,65 @@ document.getElementById("fStart").addEventListener("blur", () => {
   recalcForm();
 });
 
+/* ★M-V12: セラピスト送信文コピー(PC: CopyTherapistMessage と同一仕様) */
+async function copyTextToClipboard(text) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch { /* フォールバックへ */ }
+  // 旧iOS等向けフォールバック
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = text;
+    ta.style.position = "fixed"; ta.style.left = "-9999px"; ta.style.top = "0";
+    ta.setAttribute("readonly", "");
+    document.body.appendChild(ta);
+    ta.select(); ta.setSelectionRange(0, text.length);
+    const ok = document.execCommand("copy");
+    document.body.removeChild(ta);
+    return ok;
+  } catch { return false; }
+}
+document.getElementById("fCopyTherapist").addEventListener("click", async () => {
+  const startMin = parseBizTime(document.getElementById("fStart").value);
+  if (startMin == null) { alert("開始時刻を入力してください。例: 0930 / 22:00 / 26:30"); return; }
+  const course = Number(document.getElementById("fCourse").value) || null;
+  if (!course) { alert("コース分を選択してください。(60/80/100/120)"); return; }
+  const ext = Number(document.getElementById("fExt").value) || 0;
+  const tid = Number(document.getElementById("fTherapist").value);
+  const t = state.therapists.find(x => x.id === tid);
+  // 指名料の適用判定(recalcForm と同ルール。旧データ互換: 設定に無い「本」は指名料あり)
+  const nomSel = document.getElementById("fNom").value;
+  const nomDef = CFG.nomTypes.find(n => n.name === nomSel);
+  const applyFee = nomDef ? !!nomDef.fee : nomSel === "本";
+  const nominationFee = (applyFee && t) ? Math.max(0, t.nominationFee || 0) : 0;
+  const inp = {
+    start: startMin,
+    end: calcEnd(startMin, course, ext),
+    courseMinutes: course,
+    extensionMinutes: ext,
+    customerAttr: document.getElementById("fAttr").value,
+    customer: document.getElementById("fCustomer").value.trim(),
+    phoneLast4: document.getElementById("fPhone").value.trim(),
+    nominationType: nomSel,
+    therapistName: t ? t.name : "",
+    nominationFeeApplied: nominationFee,
+    discountAmount: Number(document.getElementById("fDiscount").value) || 0,
+    opFlag: document.getElementById("fOp").value,
+    memo: document.getElementById("fMemo").value
+  };
+  const message = buildTherapistMessage(inp, loadPrices(), loadSendFormat());
+  if (!message) { alert("送信文が空になりました。設定の送信フォーマットを確認してください。"); return; }
+  if (await copyTextToClipboard(message)) {
+    toast("送信文をコピーしました");
+  } else {
+    // コピー不能環境では文面を表示して手動コピーしてもらう
+    alert("クリップボードへのコピーに失敗しました。以下を長押しコピーしてください。\n\n" + message);
+  }
+});
+
 document.getElementById("fBack").addEventListener("click", () => formPage.classList.remove("open"));
 
 document.getElementById("fDelete").addEventListener("click", () => {
@@ -1798,6 +2008,38 @@ function loadSettingsIntoForm() {
   const opWrap = document.getElementById("sOpRows");
   opWrap.innerHTML = "";
   for (const o of CFG.options) addOpRow(o.name, o.price);
+  // ★M-V12: 送信フォーマット
+  const sf = loadSendFormat();
+  document.getElementById("sSendTemplate").value = sf.therapistTemplate;
+  const arWrap = document.getElementById("sAttrRuleRows");
+  arWrap.innerHTML = "";
+  for (const r of sf.attrMap) addAttrRuleRow(r.input, r.nom, r.output);
+  const npWrap = document.getElementById("sNomPhraseRows");
+  npWrap.innerHTML = "";
+  for (const m of sf.nomPhrases) addNomPhraseRow(m.input, m.output);
+}
+/* ★M-V12: 属性表示ルール行(属性/指名/表示) */
+function addAttrRuleRow(attr = "", nom = "", output = "") {
+  const wrap = document.getElementById("sAttrRuleRows");
+  const row = document.createElement("div");
+  row.className = "set-row";
+  row.innerHTML = `<input class="s-sm s-attr" placeholder="属性" value="${esc(attr)}">` +
+    `<input class="s-sm s-nom" placeholder="指名" value="${esc(nom)}">` +
+    `<input class="s-name s-out" placeholder="表示" value="${esc(output)}">` +
+    `<button class="s-del" type="button">×</button>`;
+  row.querySelector(".s-del").addEventListener("click", () => row.remove());
+  wrap.appendChild(row);
+}
+/* ★M-V12: 指名文言行(指名種別/追加文言) */
+function addNomPhraseRow(input = "", output = "") {
+  const wrap = document.getElementById("sNomPhraseRows");
+  const row = document.createElement("div");
+  row.className = "set-row";
+  row.innerHTML = `<input class="s-sm s-nom" placeholder="指名" value="${esc(input)}">` +
+    `<input class="s-name s-out" placeholder="追加文言" value="${esc(output)}">` +
+    `<button class="s-del" type="button">×</button>`;
+  row.querySelector(".s-del").addEventListener("click", () => row.remove());
+  wrap.appendChild(row);
 }
 function addNomRow(name = "", fee = false) {
   const wrap = document.getElementById("sNomRows");
@@ -1821,6 +2063,14 @@ function addOpRow(name = "", price = 0) {
 }
 document.getElementById("sNomAdd").addEventListener("click", () => addNomRow());
 document.getElementById("sOpAdd").addEventListener("click", () => addOpRow());
+// ★M-V12: 送信フォーマットの行追加・テンプレート初期化
+document.getElementById("sAttrRuleAdd").addEventListener("click", () => addAttrRuleRow());
+document.getElementById("sNomPhraseAdd").addEventListener("click", () => addNomPhraseRow());
+document.getElementById("sSendTplReset").addEventListener("click", () => {
+  if (confirm("テンプレートを初期値に戻しますか？")) {
+    document.getElementById("sSendTemplate").value = DEFAULT_SEND_FORMAT.therapistTemplate;
+  }
+});
 
 document.getElementById("setSave").addEventListener("click", () => {
   // 料金
@@ -1877,6 +2127,33 @@ document.getElementById("setSave").addEventListener("click", () => {
   if (isNaN(iv) || iv < 0) { alert("既定インターバルは0以上の数字で入力してください。"); return; }
   if (isNaN(round) || round < 1) { alert("基準時刻の丸め(分)は1以上の数字で入力してください。"); return; }
 
+  // ★M-V12: 送信フォーマット(PC: SettingsDialog と同一の検証)
+  const attrRules = [];
+  for (const row of document.querySelectorAll("#sAttrRuleRows .set-row")) {
+    const attr = row.querySelector(".s-attr").value.trim();
+    const nom = row.querySelector(".s-nom").value.trim();
+    const output = row.querySelector(".s-out").value.trim();
+    if (attr === "" && nom === "" && output === "") continue; // 空行は無視
+    if (attrRules.some(r => r.input === attr && r.nom === nom)) {
+      alert(`属性表示変換: 属性「${attr || "（空欄）"}」×指名「${nom || "（空欄）"}」の行が重複しています。`);
+      return;
+    }
+    attrRules.push({ input: attr, nom, output });
+  }
+  const nomPhrases = [];
+  for (const row of document.querySelectorAll("#sNomPhraseRows .set-row")) {
+    const input = row.querySelector(".s-nom").value.trim();
+    const output = row.querySelector(".s-out").value.trim();
+    if (input === "") continue;
+    if (nomPhrases.some(m => m.input === input)) {
+      alert(`指名文言: 指名種別「${input}」が重複しています。`);
+      return;
+    }
+    nomPhrases.push({ input, output });
+  }
+  let sendTemplate = document.getElementById("sSendTemplate").value.replace(/\r\n/g, "\n");
+  if (!sendTemplate.trim()) sendTemplate = DEFAULT_SEND_FORMAT.therapistTemplate;
+
   const p = loadPrices();
   p.coursePrice = { 60: nums.sp60, 80: nums.sp80, 100: nums.sp100, 120: nums.sp120 };
   p.extensionUnitMinutes = nums.spExtMin;
@@ -1885,6 +2162,8 @@ document.getElementById("setSave").addEventListener("click", () => {
   saveDiscounts(discounts);
   const s = { staffs, attrs, nomTypes, options, areas, calc: { prep, defaultInterval: iv, roundTo: round } };
   saveSettings(s);
+  // ★M-V12: 送信フォーマットの保存(PCと同一のJSON構造)
+  saveSendFormat({ therapistTemplate: sendTemplate, attrMap: attrRules, nomPhrases });
   CFG = loadSettings();
   // 現在の担当がリストから消えていたらリセット
   if (loadCurrentStaff() && !CFG.staffs.includes(loadCurrentStaff())) saveCurrentStaff("");

@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#2c5fb3">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
-<title>サロン受付 M-V11</title>
+<title>サロン受付 M-V12</title>
 <style>
   :root{
     --resA-fill:#EEE8FA; --resA-border:#8854D0;
@@ -212,6 +212,11 @@
   .set-row .s-fee{display:flex;align-items:center;gap:4px;font-size:13px;flex:none}
   .set-row .s-fee input{width:20px;height:20px}
   .set-row .s-del{flex:none;width:34px;height:38px;border:1px solid #ccc;background:#fff;border-radius:6px;color:#c00;font-size:16px}
+  /* ★M-V12: 送信フォーマット */
+  .copy-msg{width:100%;margin-top:10px;padding:12px;border:1px solid #2b6cb0;background:#fff;color:#2b6cb0;border-radius:8px;font-size:15px;font-weight:600}
+  .copy-msg:active{background:#ebf4ff}
+  .set-row .s-sm{width:70px;flex:none;border:1px solid #bbb;border-radius:6px;padding:10px 6px;font-size:15px}
+  .set-ta-fmt{width:100%;min-height:170px;border:1px solid #bbb;border-radius:6px;padding:10px;font-size:14px;line-height:1.5;box-sizing:border-box;white-space:pre}
 
   /* 担当チップ・送信待機アラート */
   .mode{display:flex;align-items:center;gap:6px}
@@ -454,6 +459,8 @@
     <div class="fg"><label>メモ</label><input id="fMemo"></div>
     <div class="chk"><input type="checkbox" id="fSendC"><label for="fSendC" style="margin:0;font-size:14px;color:var(--ink)">顧客送信 済</label></div>
     <div class="chk"><input type="checkbox" id="fSendT"><label for="fSendT" style="margin:0;font-size:14px;color:var(--ink)">女性送信 済</label></div>
+    <!-- ★M-V12: セラピスト送信文をテンプレートから生成してコピー -->
+    <button class="copy-msg" id="fCopyTherapist" type="button">セラピスト送信文コピー</button>
   </div>
   <div class="form-foot">
     <button class="del" id="fDelete">削除</button>
@@ -510,6 +517,20 @@
       <div class="fg"><label>基準の丸め(分)</label><input id="scRound" inputmode="numeric"></div>
     </div>
     <p class="menu-note">準備時間=「今から◯分後」以降を最短候補にする猶予。既定インターバルはセラピスト個別設定が空の時に使用。</p>
+
+    <!-- ★M-V12: 送信フォーマット(セラピスト向け・PC版と共通設定) -->
+    <h3 class="set-h">送信フォーマット(セラピスト向け)</h3>
+    <p class="menu-note">予約画面の「セラピスト送信文コピー」で使うテンプレートです。使える変数: {開始} {終了} {分}=コース+延長の合計 {コース} {延長} {属性}=下の属性表示変換で決定 {顧客名} {下四桁} {金額}=(コース+延長+指名料)−割引 {割引} {指名文言} {指名} {セラピスト} {OP} {メモ}。行内の変数がすべて空ならその行は丸ごと省略されます。</p>
+    <textarea id="sSendTemplate" class="set-ta-fmt" spellcheck="false"></textarea>
+    <button class="ho-add" id="sSendTplReset" type="button">テンプレートを初期値に戻す</button>
+
+    <h3 class="set-h">属性表示変換(上の行から順に判定・空欄は全てに一致)</h3>
+    <div id="sAttrRuleRows"></div>
+    <button class="ho-add" id="sAttrRuleAdd" type="button">+ ルールを追加</button>
+
+    <h3 class="set-h">指名文言(指名種別ごとの追加文言)</h3>
+    <div id="sNomPhraseRows"></div>
+    <button class="ho-add" id="sNomPhraseAdd" type="button">+ 文言を追加</button>
     <div style="height:8px"></div>
   </div>
   <div class="form-foot">
