@@ -14,7 +14,7 @@ const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
 
-const APP_VERSION = "M-V12.1";
+const APP_VERSION = "M-V12.2";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -48,10 +48,10 @@ function fmtBiz(min) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-// SNS用: 通常24h表記
+// SNS用: 通常24h表記(0〜9時は0埋めしない。M-V12.2: 「8:20」「0:15」のように直接時間で表示)
 function fmtNormal(min) {
   const h = Math.floor(min / 60) % 24, m = min % 60;
-  return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+  return `${h}:${String(m).padStart(2, "0")}`;
 }
 
 // 営業日判定: 現在時刻→営業日("YYYY-MM-DD")
@@ -345,7 +345,7 @@ function calcTotal(prices, course, ext, discount, opPrice, applyNomFee, nominati
    ・{金額} = (コース料金+延長料金+指名料) − 割引 (0未満は0・OPは含めない)
    ・行内の既知変数がすべて空(数値0含む)ならその行を丸ごと省略
    ・空値の変数は直後の空白(半角/全角)1文字も除去 / 連続空行は1行に / 先頭末尾の空行は除去 */
-function fmtMsgTime(min) { // ★M-V12.1: 出力統一のため24時以降は巻き戻す表記(最短取得コピーと同じfmtNormal仕様)
+function fmtMsgTime(min) { // ★M-V12.2: 出力統一のため24時以降は巻き戻す表記(最短取得コピーと同じfmtNormal仕様)
   if (min == null || min < 0) return "";
   return fmtNormal(min);
 }
@@ -476,7 +476,7 @@ function holdCellsToRanges(cols) {
 
 /* レポート1行(PC: ReportBuilder.FormatLine 移植) */
 function reportFormatLine(r) {
-  const start = fmtNormal(r.start); // ★M-V12.1: 出力統一のため24時以降は巻き戻す表記
+  const start = fmtNormal(r.start); // ★M-V12.2: 出力統一のため24時以降は巻き戻す表記
   let dur = `${r.courseMinutes}分`;
   if ((r.extensionMinutes || 0) > 0) dur += `+${r.extensionMinutes}分`;
   const cust = (r.customer || "").trim();
