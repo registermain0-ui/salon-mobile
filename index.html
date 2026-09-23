@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#2c5fb3">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
-<title>サロン受付 M-V12.4</title>
+<title>サロン受付 M-V12.5</title>
 <style>
   :root{
     --resA-fill:#EEE8FA; --resA-border:#8854D0;
@@ -89,6 +89,8 @@
   .cand td{padding:12px 4px;text-align:center;border-bottom:1px solid #eee}
   .cand tr.ok:active{background:#eef4ff}
   .cand tr.ng td{color:#aaa}
+  .cand-sns-btn{border:1px dashed #999;background:#fff;color:var(--sub);border-radius:6px;padding:5px 6px;font-size:11px;max-width:78px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cand-sns-btn.set{border-style:solid;border-color:var(--accent);color:var(--accent)}
   .sns{border-top:1px solid #ddd;padding:8px 14px 12px;flex:none}
   .sns textarea{width:100%;height:76px;border:1px solid #ccc;border-radius:6px;font-size:12px;padding:6px;resize:none;color:#444}
   .sns .r{display:flex;gap:8px;justify-content:flex-end;margin-top:6px}
@@ -302,7 +304,7 @@
   </div>
   <div class="cand">
     <table>
-      <thead><tr><th>セラピスト</th><th>最短開始</th><th>最大コース</th></tr></thead>
+      <thead><tr><th>セラピスト</th><th>最短開始</th><th>最大コース</th><th>補足</th></tr></thead>
       <tbody id="candBody"></tbody>
     </table>
   </div>
