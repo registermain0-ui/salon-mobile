@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#2c5fb3">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
-<title>サロン受付 M-V12.5</title>
+<title>サロン受付 M-V13</title>
 <style>
   :root{
     --resA-fill:#EEE8FA; --resA-border:#8854D0;
@@ -107,6 +107,26 @@
   .att-row input.err{border-color:#d32f2f}
   .att-entry{margin-bottom:8px}
   .att-sns{width:100%;border:1px solid #ccc;border-radius:6px;padding:7px 8px;font-size:12.5px;color:#444;background:#fbfbfb}
+  /* ★M-V13: 精算画面 */
+  .sz-card{border:1px solid #ddd;border-radius:10px;padding:12px;margin-bottom:14px;background:#fafafa}
+  .sz-card h4{margin:0 0 10px;font-size:15px;display:flex;justify-content:space-between;align-items:center}
+  .sz-card h4 .x-del{margin-left:8px}
+  .sz-row{display:flex;gap:8px;margin-bottom:8px}
+  .sz-row .fg{flex:1;margin-bottom:0}
+  .sz-rate-note{font-size:11px;color:var(--sub);margin:-4px 0 8px}
+  .sz-res-head{display:flex;gap:6px;font-size:11px;color:var(--sub);padding:2px 0;border-bottom:1px solid #eee}
+  .sz-res-row{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #eee;font-size:13px}
+  .sz-res-row .sz-r-info{flex:1;min-width:0}
+  .sz-res-row .sz-r-dep{width:88px;border:1px solid #bbb;border-radius:6px;padding:6px 4px;font-size:13px;text-align:right}
+  .sz-res-row .sz-r-dep.mismatch{border-color:#d32f2f;background:#fff0f0}
+  .sz-r-expect{font-size:10px;color:#d32f2f;display:block}
+  .sz-empty-res{font-size:12px;color:var(--sub);padding:8px 0}
+  .sz-result{margin-top:10px;padding:10px;background:#fff;border:1px solid #eee;border-radius:8px;font-size:13px;line-height:1.9}
+  .sz-result b{font-size:15px}
+  .sz-alert{color:#d32f2f;font-weight:bold;margin-top:4px}
+  .sz-err{color:#d32f2f;font-size:12px;margin-top:4px}
+  .sz-btns{display:flex;gap:8px;margin-top:10px}
+  .sz-btns button{flex:1}
   .sheet-foot{flex:none;display:flex;gap:10px;padding:10px 14px;border-top:1px solid #ddd}
   .sheet-foot .sub{border:1px solid #bbb;background:#fff;border-radius:8px;padding:11px 14px;font-size:14px}
   .sheet-foot .main{flex:1;border:none;background:var(--accent);color:#fff;border-radius:8px;padding:11px;font-size:15px;font-weight:700}
@@ -361,6 +381,7 @@
     <button id="openReport">レポート</button>
     <button id="openSettings">設定</button>
     <button id="openTherapistMgmt">セラピスト管理</button>
+    <button id="openSeisan">精算</button>
     <button id="cloudPush" class="cloud-btn">☁ 預ける(クラウドへ保存)</button>
     <button id="cloudPull" class="cloud-btn">☁ 受け取る(クラウドから取得)</button>
     <button id="openSyncConfig">クラウド同期設定</button>
@@ -535,6 +556,26 @@
     <h3 class="set-h">指名文言(指名種別ごとの追加文言)</h3>
     <div id="sNomPhraseRows"></div>
     <button class="ho-add" id="sNomPhraseAdd" type="button">+ 文言を追加</button>
+
+    <!-- ★M-V13: 精算設定 -->
+    <h3 class="set-h">精算設定</h3>
+    <div class="fg-row">
+      <div class="fg"><label>女性給 丸め基準値(円)</label><input id="szRoundWoman" inputmode="numeric"></div>
+      <div class="fg"><label>店落ち 丸め基準値(円)</label><input id="szRoundShop" inputmode="numeric"></div>
+    </div>
+    <p class="menu-note">1000円未満の端数がこの基準値未満なら切り下げ、以上なら切り上げます(基準値500なら通常の四捨五入と同じ)。</p>
+    <div class="fg-row">
+      <div class="fg"><label>バック率アラートの基準</label>
+        <select id="szAlertMode"><option value="fixed">固定値(%)</option><option value="minRate">本日の最低バック率</option></select>
+      </div>
+      <div class="fg"><label>固定値(%)</label><input id="szAlertPercent" inputmode="numeric"></div>
+    </div>
+    <p class="menu-note">女性給(生合計)が「預かり金合計×この基準」を下回った場合、バック率の入力ミスの疑いとして警告します。</p>
+    <h3 class="set-h">精算送信文(セラピスト向け・ヘッダー/フッター)</h3>
+    <p class="menu-note">本文(コース内訳・合計・釣り銭など)は自動生成されます。前後に付ける固定文のみ編集できます。</p>
+    <div class="fg"><label>ヘッダー</label><textarea id="szMsgHeader" class="set-ta set-ta-s"></textarea></div>
+    <div class="fg"><label>フッター</label><textarea id="szMsgFooter" class="set-ta set-ta-s"></textarea></div>
+    <button class="ho-add" id="szMsgReset" type="button">文面を初期値に戻す</button>
     <div style="height:8px"></div>
   </div>
   <div class="form-foot">
@@ -603,6 +644,22 @@
 <div class="upd-banner" id="updBanner">
   <span>新しいバージョンがあります</span>
   <button id="updBtn">更新</button>
+</div>
+
+<!-- 精算(全画面) ★M-V13 -->
+<div class="form-page" id="seisanPage">
+  <div class="form-head">
+    <button class="back" id="seisanBack">‹ 戻る</button>
+    <h2>精算</h2>
+  </div>
+  <div class="form-body">
+    <div class="att-search-wrap">
+      <input id="seisanSearch" placeholder="セラピスト名で検索して追加" autocomplete="off">
+      <div class="att-sug" id="seisanSug"></div>
+    </div>
+    <div id="seisanCards"></div>
+    <div class="att-empty" id="seisanEmpty">上の検索からセラピストを追加してください。</div>
+  </div>
 </div>
 
 <div id="toast"></div>
