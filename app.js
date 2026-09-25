@@ -14,7 +14,7 @@ const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
 
-const APP_VERSION = "M-V13.2";
+const APP_VERSION = "M-V13.3";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -48,7 +48,7 @@ function fmtBiz(min) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-// SNS用: 通常24h表記(0〜9時は0埋めしない。M-V13.2: 「8:20」「0:15」のように直接時間で表示)
+// SNS用: 通常24h表記(0〜9時は0埋めしない。M-V13.3: 「8:20」「0:15」のように直接時間で表示)
 function fmtNormal(min) {
   const h = Math.floor(min / 60) % 24, m = min % 60;
   return `${h}:${String(m).padStart(2, "0")}`;
@@ -345,7 +345,7 @@ function calcTotal(prices, course, ext, discount, opPrice, applyNomFee, nominati
    ・{金額} = (コース料金+延長料金+指名料) − 割引 (0未満は0・OPは含めない)
    ・行内の既知変数がすべて空(数値0含む)ならその行を丸ごと省略
    ・空値の変数は直後の空白(半角/全角)1文字も除去 / 連続空行は1行に / 先頭末尾の空行は除去 */
-function fmtMsgTime(min) { // ★M-V13.2: 出力統一のため24時以降は巻き戻す表記(最短取得コピーと同じfmtNormal仕様)
+function fmtMsgTime(min) { // ★M-V13.3: 出力統一のため24時以降は巻き戻す表記(最短取得コピーと同じfmtNormal仕様)
   if (min == null || min < 0) return "";
   return fmtNormal(min);
 }
@@ -476,7 +476,7 @@ function holdCellsToRanges(cols) {
 
 /* レポート1行(PC: ReportBuilder.FormatLine 移植) */
 function reportFormatLine(r) {
-  const start = fmtNormal(r.start); // ★M-V13.2: 出力統一のため24時以降は巻き戻す表記
+  const start = fmtNormal(r.start); // ★M-V13.3: 出力統一のため24時以降は巻き戻す表記
   let dur = `${r.courseMinutes}分`;
   if ((r.extensionMinutes || 0) > 0) dur += `+${r.extensionMinutes}分`;
   const cust = (r.customer || "").trim();
@@ -546,7 +546,7 @@ function buildTherapistMemo(face, body, kan, fee, caution) {
   return `顔:${face}/体:${body}/寛:${kan}/${fee}/[${c}]`;
 }
 
-/* ================= 精算計算(★M-V13.2新規) ================= */
+/* ================= 精算計算(★M-V13.3新規) ================= */
 
 // バック率カテゴリの解決: 指名種別名 → "free" | "hime" | "hon"(F・写・その他は全てfree扱い)
 function backCategoryOf(nominationType) {
@@ -565,7 +565,7 @@ function roundToThousand(amount, base) {
 }
 
 // OP金額の解決(精算専用ロジック。CFG.optionsに名前一致があればその単価。
-// ★M-V13.2: 予約入力時、OPが付く場合(9割以上=MB)はopFlagを空欄のまま運用し、
+// ★M-V13.3: 予約入力時、OPが付く場合(9割以上=MB)はopFlagを空欄のまま運用し、
 // OPが付かない時だけ「無」を明示選択する運用のため、空欄は「MB」を選んだものとして扱う。
 // 「無」が明示されている時だけ0円とする。)
 function resolveOpPrice(opFlag, prices, cfgOptions) {
@@ -581,7 +581,7 @@ function resolveOpPrice(opFlag, prices, cfgOptions) {
 }
 
 /* 予約1件の「システム計算上の預かり金期待値」(コース+延長+OP+指名料-割引)。
- * ★M-V13.2: 精算では resolveOpPrice の空欄=MB前提で再計算するため、
+ * ★M-V13.3: 精算では resolveOpPrice の空欄=MB前提で再計算するため、
  * 予約保存時に凍結された r.totalAmount(空欄=OPなし0円で計算されている)は使わない。 */
 function calcExpectedDeposit(r, prices, cfgOptions, cfgNomTypes, therapist) {
   const courseAmount = (prices.coursePrice && prices.coursePrice[r.courseMinutes]) || 0;
@@ -652,7 +652,7 @@ function buildSeisanSummary(reservations, prices, rates, cfgOptions, cfgNomTypes
     womanRawTotal += courseReward + extReward + nomFeeAmt + opAmt;
 
     const entered = entry && entry.deposits ? entry.deposits[r.id] : undefined;
-    const expected = calcExpectedDeposit(r, prices, cfgOptions, cfgNomTypes, therapist); // ★M-V13.2: OPの空欄=MB前提で再計算
+    const expected = calcExpectedDeposit(r, prices, cfgOptions, cfgNomTypes, therapist); // ★M-V13.3: OPの空欄=MB前提で再計算
     if (entered != null && entered !== "") {
       depositTotal += Number(entered);
       if (expected != null && Number(entered) !== expected) {
@@ -768,8 +768,8 @@ const K = {
   discounts: "este.discounts",
   snsFormat: "este.snsFormat",
   sendFormat: "este.sendFormat", // ★M-V12: 送信文フォーマット(PC V4.0〜と共通・同期対象)
-  seisan: d => `este.seisan.${d}`,        // ★M-V13.2: 精算データ(当日限り)
-  seisanFormat: "este.seisanFormat",      // ★M-V13.2: 精算送信文フォーマット
+  seisan: d => `este.seisan.${d}`,        // ★M-V13.3: 精算データ(当日限り)
+  seisanFormat: "este.seisanFormat",      // ★M-V13.3: 精算送信文フォーマット
   seq: "este.therapistSeq"
 };
 
@@ -780,19 +780,19 @@ function loadAttendance(d) { return LS.get(K.attendance(d), []); }
 function saveAttendance(d, list) { LS.set(K.attendance(d), list); touchMeta(K.attendance(d)); }
 function loadReservations(d) { return LS.get(K.reservations(d), []); }
 function saveReservations(d, list) { LS.set(K.reservations(d), list); touchMeta(K.reservations(d)); }
-function loadSeisan(d) { return LS.get(K.seisan(d), []); } // ★M-V13.2
-function saveSeisan(d, list) { LS.set(K.seisan(d), list); touchMeta(K.seisan(d)); } // ★M-V13.2
-const DEFAULT_SEISAN_FORMAT = { // ★M-V13.2
+function loadSeisan(d) { return LS.get(K.seisan(d), []); } // ★M-V13.3
+function saveSeisan(d, list) { LS.set(K.seisan(d), list); touchMeta(K.seisan(d)); } // ★M-V13.3
+const DEFAULT_SEISAN_FORMAT = { // ★M-V13.3
   header: "本日の、報酬をお送りいたします！\n後ほど、ご確認を宜しくお願い致します🙆‍♂️",
   footer: "この後、ルーム使用をしますので\n電気、エアコンはつけたままで大丈夫です🙇‍♂️\n補充、清掃、洗濯などは\nお願い致します🙆‍♂️"
 };
-function loadSeisanFormat() { // ★M-V13.2
+function loadSeisanFormat() { // ★M-V13.3
   const f = LS.get(K.seisanFormat, null);
   if (!f) return JSON.parse(JSON.stringify(DEFAULT_SEISAN_FORMAT));
   return { header: typeof f.header === "string" ? f.header : DEFAULT_SEISAN_FORMAT.header,
     footer: typeof f.footer === "string" ? f.footer : DEFAULT_SEISAN_FORMAT.footer };
 }
-function saveSeisanFormat(f) { LS.set(K.seisanFormat, f); touchMeta(K.seisanFormat); } // ★M-V13.2
+function saveSeisanFormat(f) { LS.set(K.seisanFormat, f); touchMeta(K.seisanFormat); } // ★M-V13.3
 function loadHolds(d) { return LS.get(K.holds(d), []); }
 function saveHolds(d, list) { LS.set(K.holds(d), list); touchMeta(K.holds(d)); }
 function loadSendQueue() { return LS.get(K.sendQueue, {}); }
@@ -815,7 +815,7 @@ const DEFAULT_SETTINGS = {
   options: [{ name: "有", price: 5000 }],
   areas: ["A", "B"],
   calc: { prep: 15, defaultInterval: 20, roundTo: 5 },
-  seisan: { roundBaseWoman: 500, roundBaseShop: 750, alertMode: "fixed", alertFixedPercent: 50 } // ★M-V13.2
+  seisan: { roundBaseWoman: 500, roundBaseShop: 750, alertMode: "fixed", alertFixedPercent: 50 } // ★M-V13.3
 };
 function loadSettings() {
   const s = LS.get("este.settings", null);
@@ -833,7 +833,7 @@ function loadSettings() {
       defaultInterval: s.calc && Number.isFinite(s.calc.defaultInterval) ? s.calc.defaultInterval : d.calc.defaultInterval,
       roundTo: s.calc && Number.isFinite(s.calc.roundTo) && s.calc.roundTo >= 1 ? s.calc.roundTo : d.calc.roundTo
     },
-    seisan: { // ★M-V13.2
+    seisan: { // ★M-V13.3
       roundBaseWoman: s.seisan && Number.isFinite(s.seisan.roundBaseWoman) ? s.seisan.roundBaseWoman : d.seisan.roundBaseWoman,
       roundBaseShop: s.seisan && Number.isFinite(s.seisan.roundBaseShop) ? s.seisan.roundBaseShop : d.seisan.roundBaseShop,
       alertMode: s.seisan && (s.seisan.alertMode === "fixed" || s.seisan.alertMode === "minRate") ? s.seisan.alertMode : d.seisan.alertMode,
@@ -927,7 +927,7 @@ const state = {
   reservations: [],
   holdCells: {},         // therapistId -> Set(col)
   shortestBaseMin: null, // 最短パネルの基準(分)
-  seisan: [],             // ★M-V13.2: 精算データ(当日限り)
+  seisan: [],             // ★M-V13.3: 精算データ(当日限り)
   editing: null          // {id} 編集中予約
 };
 
@@ -943,7 +943,7 @@ function presentTherapists() {
 function reloadDate() {
   state.attendance = loadAttendance(state.dateKey);
   state.reservations = loadReservations(state.dateKey);
-  state.seisan = loadSeisan(state.dateKey); // ★M-V13.2
+  state.seisan = loadSeisan(state.dateKey); // ★M-V13.3
   state.holdCells = {};
   for (const h of loadHolds(state.dateKey)) {
     const col = Math.floor((normSpan(h.startMin) - BIZ_START_MIN) / MINUTE_STEP);
@@ -1205,7 +1205,7 @@ function attRefreshEmpty() {
 }
 function attAddRow(t, cur, focusStart) {
   const body = document.getElementById("attRows");
-  const wrap = document.createElement("div"); // ★M-V13.2: 出勤行+SNS表示補足をまとめる当日限りの入れ物
+  const wrap = document.createElement("div"); // ★M-V13.3: 出勤行+SNS表示補足をまとめる当日限りの入れ物
   wrap.className = "att-entry";
   wrap.dataset.tid = String(t.id);
   const tr = document.createElement("div");
@@ -1237,7 +1237,7 @@ function attAddRow(t, cur, focusStart) {
     renderAttSuggestions(); // 候補に戻す
   });
   tr.append(nm, s, e, ar, del);
-  const sns = document.createElement("input"); // ★M-V13.2: SNS表示補足(この日の出勤データにのみ紐づく・翌日には残らない)
+  const sns = document.createElement("input"); // ★M-V13.3: SNS表示補足(この日の出勤データにのみ紐づく・翌日には残らない)
   sns.className = "att-sns";
   sns.placeholder = "SNS表示補足(最短取得コピー用・任意・例: 23:00まで)";
   if (cur && cur.snsSuffix) sns.value = cur.snsSuffix;
@@ -1309,7 +1309,7 @@ document.getElementById("attSave").addEventListener("click", () => {
     const tid = Number(wrap.dataset.tid);
     const tr = wrap.querySelector(".att-row");
     const [, s, e, ar] = tr.children;
-    const snsSuffix = wrap.querySelector(".att-sns").value.trim(); // ★M-V13.2
+    const snsSuffix = wrap.querySelector(".att-sns").value.trim(); // ★M-V13.3
     const sv = parseBizTime(s.value), ev = parseBizTime(e.value);
     const t = state.therapists.find(x => x.id === tid);
     const nm = t ? t.name : "?";
@@ -1404,7 +1404,7 @@ function renderShortest() {
   const cands = computeCandidates(base)
     .filter(c => c.maxMinutes === 0 || c.startMin >= base)
     .filter(c => shortestArea === "全" || areaOf.get(c.therapistId) === shortestArea);
-  const snsSuffixOf = new Map(state.attendance.map(a => [a.therapistId, (a.snsSuffix || "").trim()])); // ★M-V13.2: この日の出勤データから(翌日には残らない)
+  const snsSuffixOf = new Map(state.attendance.map(a => [a.therapistId, (a.snsSuffix || "").trim()])); // ★M-V13.3: この日の出勤データから(翌日には残らない)
   const tb = document.getElementById("candBody");
   tb.innerHTML = "";
   for (const c of cands) {
@@ -1416,7 +1416,7 @@ function renderShortest() {
         closeSheets();
         openReservationForm(null, { therapistId: c.therapistId, startMin: c.startMin, lockTherapist: true });
       });
-      // ★M-V13.2: 最短取得の画面からSNS表示補足を直接編集(出勤登録を開かずに済む・当日のみ有効)
+      // ★M-V13.3: 最短取得の画面からSNS表示補足を直接編集(出勤登録を開かずに済む・当日のみ有効)
       const cur = snsSuffixOf.get(c.therapistId) || "";
       const btn = document.createElement("button");
       btn.type = "button";
@@ -1442,7 +1442,7 @@ function renderShortest() {
   if (fm.header && fm.header.trim()) { lines.push(fm.header); lines.push(""); }
   for (const c of cands) {
     if (c.maxMinutes <= 0) continue;
-    const suffix = snsSuffixOf.get(c.therapistId) || ""; // ★M-V13.2: セラピスト別「〜」の後の固定文言(当日のみ)
+    const suffix = snsSuffixOf.get(c.therapistId) || ""; // ★M-V13.3: セラピスト別「〜」の後の固定文言(当日のみ)
     lines.push(`${padName(sanName(c.name), 5)} ${fmtNormal(c.startMin)}〜${suffix}`);
   }
   if (fm.footer && fm.footer.trim()) { lines.push(""); lines.push(fm.footer); }
@@ -2211,7 +2211,7 @@ document.getElementById("tmDelete").addEventListener("click", () => {
 });
 document.getElementById("tmClear").addEventListener("click", tmClearForm);
 
-/* ================= 精算 ★M-V13.2 ================= */
+/* ================= 精算 ★M-V13.3 ================= */
 const seisanPage = document.getElementById("seisanPage");
 document.getElementById("openSeisan").addEventListener("click", () => {
   closeSheets();
@@ -2224,7 +2224,7 @@ document.getElementById("seisanBack").addEventListener("click", () => seisanPage
 function seisanAddedIds() {
   return new Set(state.seisan.map(e => e.therapistId));
 }
-// ★M-V13.2.1: 検索入力→サジェストではなく、タップ→プルダウン選択の2タップで追加できるようにする
+// ★M-V13.3.1: 検索入力→サジェストではなく、タップ→プルダウン選択の2タップで追加できるようにする
 function renderSeisanAddSelect() {
   const sel = document.getElementById("seisanAddSelect");
   const added = seisanAddedIds();
@@ -2309,7 +2309,7 @@ function buildSeisanCard(entry, idx) {
     if (val != null && val !== "") i.value = String(val);
     return i;
   };
-  // ★M-V13.2.1: バック率・交通費はタップ→選択のプルダウンに変更(要望対応)
+  // ★M-V13.3.1: バック率・交通費はタップ→選択のプルダウンに変更(要望対応)
   const selectInput = (className, options, val) => {
     const s = document.createElement("select");
     s.className = className;
@@ -2558,7 +2558,7 @@ function loadSettingsIntoForm() {
   const npWrap = document.getElementById("sNomPhraseRows");
   npWrap.innerHTML = "";
   for (const m of sf.nomPhrases) addNomPhraseRow(m.input, m.output);
-  // ★M-V13.2: 精算設定
+  // ★M-V13.3: 精算設定
   document.getElementById("szRoundWoman").value = CFG.seisan.roundBaseWoman;
   document.getElementById("szRoundShop").value = CFG.seisan.roundBaseShop;
   document.getElementById("szAlertMode").value = CFG.seisan.alertMode;
@@ -2620,7 +2620,7 @@ document.getElementById("sSendTplReset").addEventListener("click", () => {
     document.getElementById("sSendTemplate").value = DEFAULT_SEND_FORMAT.therapistTemplate;
   }
 });
-document.getElementById("szMsgReset").addEventListener("click", () => { // ★M-V13.2
+document.getElementById("szMsgReset").addEventListener("click", () => { // ★M-V13.3
   if (confirm("精算送信文のヘッダー/フッターを初期値に戻しますか？")) {
     document.getElementById("szMsgHeader").value = DEFAULT_SEISAN_FORMAT.header;
     document.getElementById("szMsgFooter").value = DEFAULT_SEISAN_FORMAT.footer;
@@ -2709,7 +2709,7 @@ document.getElementById("setSave").addEventListener("click", () => {
   let sendTemplate = document.getElementById("sSendTemplate").value.replace(/\r\n/g, "\n");
   if (!sendTemplate.trim()) sendTemplate = DEFAULT_SEND_FORMAT.therapistTemplate;
 
-  // ★M-V13.2: 精算設定
+  // ★M-V13.3: 精算設定
   const roundWoman = parseInt(document.getElementById("szRoundWoman").value, 10);
   const roundShop = parseInt(document.getElementById("szRoundShop").value, 10);
   const alertMode = document.getElementById("szAlertMode").value === "minRate" ? "minRate" : "fixed";
@@ -2731,7 +2731,7 @@ document.getElementById("setSave").addEventListener("click", () => {
   saveSettings(s);
   // ★M-V12: 送信フォーマットの保存(PCと同一のJSON構造)
   saveSendFormat({ therapistTemplate: sendTemplate, attrMap: attrRules, nomPhrases });
-  saveSeisanFormat({ header: seisanHeader, footer: seisanFooter }); // ★M-V13.2
+  saveSeisanFormat({ header: seisanHeader, footer: seisanFooter }); // ★M-V13.3
   CFG = loadSettings();
   // 現在の担当がリストから消えていたらリセット
   if (loadCurrentStaff() && !CFG.staffs.includes(loadCurrentStaff())) saveCurrentStaff("");
@@ -2965,6 +2965,8 @@ document.getElementById("sySave").addEventListener("click", () => {
 
 /* ================= データ移行(エクスポート/インポート) ================= */
 document.getElementById("btnMenu").addEventListener("click", () => openSheet(document.getElementById("menuSheet")));
+document.getElementById("openTodayMenu").addEventListener("click", () => { closeSheets(); openSheet(document.getElementById("todayMenuSheet")); }); // ★M-V13.3
+document.getElementById("openOtherMenu").addEventListener("click", () => { closeSheets(); openSheet(document.getElementById("otherMenuSheet")); }); // ★M-V13.3
 function buildExportMd() {
   const dump = collectDataDump(); // 同期トークン等は含めない
   const now = new Date();
