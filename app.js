@@ -14,7 +14,7 @@ const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
 
-const APP_VERSION = "M-V13";
+const APP_VERSION = "M-V13.1";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -48,7 +48,7 @@ function fmtBiz(min) {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
 }
 
-// SNS用: 通常24h表記(0〜9時は0埋めしない。M-V13: 「8:20」「0:15」のように直接時間で表示)
+// SNS用: 通常24h表記(0〜9時は0埋めしない。M-V13.1: 「8:20」「0:15」のように直接時間で表示)
 function fmtNormal(min) {
   const h = Math.floor(min / 60) % 24, m = min % 60;
   return `${h}:${String(m).padStart(2, "0")}`;
@@ -345,7 +345,7 @@ function calcTotal(prices, course, ext, discount, opPrice, applyNomFee, nominati
    ・{金額} = (コース料金+延長料金+指名料) − 割引 (0未満は0・OPは含めない)
    ・行内の既知変数がすべて空(数値0含む)ならその行を丸ごと省略
    ・空値の変数は直後の空白(半角/全角)1文字も除去 / 連続空行は1行に / 先頭末尾の空行は除去 */
-function fmtMsgTime(min) { // ★M-V13: 出力統一のため24時以降は巻き戻す表記(最短取得コピーと同じfmtNormal仕様)
+function fmtMsgTime(min) { // ★M-V13.1: 出力統一のため24時以降は巻き戻す表記(最短取得コピーと同じfmtNormal仕様)
   if (min == null || min < 0) return "";
   return fmtNormal(min);
 }
@@ -476,7 +476,7 @@ function holdCellsToRanges(cols) {
 
 /* レポート1行(PC: ReportBuilder.FormatLine 移植) */
 function reportFormatLine(r) {
-  const start = fmtNormal(r.start); // ★M-V13: 出力統一のため24時以降は巻き戻す表記
+  const start = fmtNormal(r.start); // ★M-V13.1: 出力統一のため24時以降は巻き戻す表記
   let dur = `${r.courseMinutes}分`;
   if ((r.extensionMinutes || 0) > 0) dur += `+${r.extensionMinutes}分`;
   const cust = (r.customer || "").trim();
@@ -546,7 +546,7 @@ function buildTherapistMemo(face, body, kan, fee, caution) {
   return `顔:${face}/体:${body}/寛:${kan}/${fee}/[${c}]`;
 }
 
-/* ================= 精算計算(★M-V13新規) ================= */
+/* ================= 精算計算(★M-V13.1新規) ================= */
 
 // バック率カテゴリの解決: 指名種別名 → "free" | "hime" | "hon"(F・写・その他は全てfree扱い)
 function backCategoryOf(nominationType) {
@@ -744,8 +744,8 @@ const K = {
   discounts: "este.discounts",
   snsFormat: "este.snsFormat",
   sendFormat: "este.sendFormat", // ★M-V12: 送信文フォーマット(PC V4.0〜と共通・同期対象)
-  seisan: d => `este.seisan.${d}`,        // ★M-V13: 精算データ(当日限り)
-  seisanFormat: "este.seisanFormat",      // ★M-V13: 精算送信文フォーマット
+  seisan: d => `este.seisan.${d}`,        // ★M-V13.1: 精算データ(当日限り)
+  seisanFormat: "este.seisanFormat",      // ★M-V13.1: 精算送信文フォーマット
   seq: "este.therapistSeq"
 };
 
@@ -756,19 +756,19 @@ function loadAttendance(d) { return LS.get(K.attendance(d), []); }
 function saveAttendance(d, list) { LS.set(K.attendance(d), list); touchMeta(K.attendance(d)); }
 function loadReservations(d) { return LS.get(K.reservations(d), []); }
 function saveReservations(d, list) { LS.set(K.reservations(d), list); touchMeta(K.reservations(d)); }
-function loadSeisan(d) { return LS.get(K.seisan(d), []); } // ★M-V13
-function saveSeisan(d, list) { LS.set(K.seisan(d), list); touchMeta(K.seisan(d)); } // ★M-V13
-const DEFAULT_SEISAN_FORMAT = { // ★M-V13
+function loadSeisan(d) { return LS.get(K.seisan(d), []); } // ★M-V13.1
+function saveSeisan(d, list) { LS.set(K.seisan(d), list); touchMeta(K.seisan(d)); } // ★M-V13.1
+const DEFAULT_SEISAN_FORMAT = { // ★M-V13.1
   header: "本日の、報酬をお送りいたします！\n後ほど、ご確認を宜しくお願い致します🙆‍♂️",
   footer: "この後、ルーム使用をしますので\n電気、エアコンはつけたままで大丈夫です🙇‍♂️\n補充、清掃、洗濯などは\nお願い致します🙆‍♂️"
 };
-function loadSeisanFormat() { // ★M-V13
+function loadSeisanFormat() { // ★M-V13.1
   const f = LS.get(K.seisanFormat, null);
   if (!f) return JSON.parse(JSON.stringify(DEFAULT_SEISAN_FORMAT));
   return { header: typeof f.header === "string" ? f.header : DEFAULT_SEISAN_FORMAT.header,
     footer: typeof f.footer === "string" ? f.footer : DEFAULT_SEISAN_FORMAT.footer };
 }
-function saveSeisanFormat(f) { LS.set(K.seisanFormat, f); touchMeta(K.seisanFormat); } // ★M-V13
+function saveSeisanFormat(f) { LS.set(K.seisanFormat, f); touchMeta(K.seisanFormat); } // ★M-V13.1
 function loadHolds(d) { return LS.get(K.holds(d), []); }
 function saveHolds(d, list) { LS.set(K.holds(d), list); touchMeta(K.holds(d)); }
 function loadSendQueue() { return LS.get(K.sendQueue, {}); }
@@ -791,7 +791,7 @@ const DEFAULT_SETTINGS = {
   options: [{ name: "有", price: 5000 }],
   areas: ["A", "B"],
   calc: { prep: 15, defaultInterval: 20, roundTo: 5 },
-  seisan: { roundBaseWoman: 500, roundBaseShop: 750, alertMode: "fixed", alertFixedPercent: 50 } // ★M-V13
+  seisan: { roundBaseWoman: 500, roundBaseShop: 750, alertMode: "fixed", alertFixedPercent: 50 } // ★M-V13.1
 };
 function loadSettings() {
   const s = LS.get("este.settings", null);
@@ -809,7 +809,7 @@ function loadSettings() {
       defaultInterval: s.calc && Number.isFinite(s.calc.defaultInterval) ? s.calc.defaultInterval : d.calc.defaultInterval,
       roundTo: s.calc && Number.isFinite(s.calc.roundTo) && s.calc.roundTo >= 1 ? s.calc.roundTo : d.calc.roundTo
     },
-    seisan: { // ★M-V13
+    seisan: { // ★M-V13.1
       roundBaseWoman: s.seisan && Number.isFinite(s.seisan.roundBaseWoman) ? s.seisan.roundBaseWoman : d.seisan.roundBaseWoman,
       roundBaseShop: s.seisan && Number.isFinite(s.seisan.roundBaseShop) ? s.seisan.roundBaseShop : d.seisan.roundBaseShop,
       alertMode: s.seisan && (s.seisan.alertMode === "fixed" || s.seisan.alertMode === "minRate") ? s.seisan.alertMode : d.seisan.alertMode,
@@ -903,7 +903,7 @@ const state = {
   reservations: [],
   holdCells: {},         // therapistId -> Set(col)
   shortestBaseMin: null, // 最短パネルの基準(分)
-  seisan: [],             // ★M-V13: 精算データ(当日限り)
+  seisan: [],             // ★M-V13.1: 精算データ(当日限り)
   editing: null          // {id} 編集中予約
 };
 
@@ -919,7 +919,7 @@ function presentTherapists() {
 function reloadDate() {
   state.attendance = loadAttendance(state.dateKey);
   state.reservations = loadReservations(state.dateKey);
-  state.seisan = loadSeisan(state.dateKey); // ★M-V13
+  state.seisan = loadSeisan(state.dateKey); // ★M-V13.1
   state.holdCells = {};
   for (const h of loadHolds(state.dateKey)) {
     const col = Math.floor((normSpan(h.startMin) - BIZ_START_MIN) / MINUTE_STEP);
@@ -1181,7 +1181,7 @@ function attRefreshEmpty() {
 }
 function attAddRow(t, cur, focusStart) {
   const body = document.getElementById("attRows");
-  const wrap = document.createElement("div"); // ★M-V13: 出勤行+SNS表示補足をまとめる当日限りの入れ物
+  const wrap = document.createElement("div"); // ★M-V13.1: 出勤行+SNS表示補足をまとめる当日限りの入れ物
   wrap.className = "att-entry";
   wrap.dataset.tid = String(t.id);
   const tr = document.createElement("div");
@@ -1213,7 +1213,7 @@ function attAddRow(t, cur, focusStart) {
     renderAttSuggestions(); // 候補に戻す
   });
   tr.append(nm, s, e, ar, del);
-  const sns = document.createElement("input"); // ★M-V13: SNS表示補足(この日の出勤データにのみ紐づく・翌日には残らない)
+  const sns = document.createElement("input"); // ★M-V13.1: SNS表示補足(この日の出勤データにのみ紐づく・翌日には残らない)
   sns.className = "att-sns";
   sns.placeholder = "SNS表示補足(最短取得コピー用・任意・例: 23:00まで)";
   if (cur && cur.snsSuffix) sns.value = cur.snsSuffix;
@@ -1285,7 +1285,7 @@ document.getElementById("attSave").addEventListener("click", () => {
     const tid = Number(wrap.dataset.tid);
     const tr = wrap.querySelector(".att-row");
     const [, s, e, ar] = tr.children;
-    const snsSuffix = wrap.querySelector(".att-sns").value.trim(); // ★M-V13
+    const snsSuffix = wrap.querySelector(".att-sns").value.trim(); // ★M-V13.1
     const sv = parseBizTime(s.value), ev = parseBizTime(e.value);
     const t = state.therapists.find(x => x.id === tid);
     const nm = t ? t.name : "?";
@@ -1380,7 +1380,7 @@ function renderShortest() {
   const cands = computeCandidates(base)
     .filter(c => c.maxMinutes === 0 || c.startMin >= base)
     .filter(c => shortestArea === "全" || areaOf.get(c.therapistId) === shortestArea);
-  const snsSuffixOf = new Map(state.attendance.map(a => [a.therapistId, (a.snsSuffix || "").trim()])); // ★M-V13: この日の出勤データから(翌日には残らない)
+  const snsSuffixOf = new Map(state.attendance.map(a => [a.therapistId, (a.snsSuffix || "").trim()])); // ★M-V13.1: この日の出勤データから(翌日には残らない)
   const tb = document.getElementById("candBody");
   tb.innerHTML = "";
   for (const c of cands) {
@@ -1392,7 +1392,7 @@ function renderShortest() {
         closeSheets();
         openReservationForm(null, { therapistId: c.therapistId, startMin: c.startMin, lockTherapist: true });
       });
-      // ★M-V13: 最短取得の画面からSNS表示補足を直接編集(出勤登録を開かずに済む・当日のみ有効)
+      // ★M-V13.1: 最短取得の画面からSNS表示補足を直接編集(出勤登録を開かずに済む・当日のみ有効)
       const cur = snsSuffixOf.get(c.therapistId) || "";
       const btn = document.createElement("button");
       btn.type = "button";
@@ -1418,7 +1418,7 @@ function renderShortest() {
   if (fm.header && fm.header.trim()) { lines.push(fm.header); lines.push(""); }
   for (const c of cands) {
     if (c.maxMinutes <= 0) continue;
-    const suffix = snsSuffixOf.get(c.therapistId) || ""; // ★M-V13: セラピスト別「〜」の後の固定文言(当日のみ)
+    const suffix = snsSuffixOf.get(c.therapistId) || ""; // ★M-V13.1: セラピスト別「〜」の後の固定文言(当日のみ)
     lines.push(`${padName(sanName(c.name), 5)} ${fmtNormal(c.startMin)}〜${suffix}`);
   }
   if (fm.footer && fm.footer.trim()) { lines.push(""); lines.push(fm.footer); }
@@ -2187,12 +2187,11 @@ document.getElementById("tmDelete").addEventListener("click", () => {
 });
 document.getElementById("tmClear").addEventListener("click", tmClearForm);
 
-/* ================= 精算 ★M-V13 ================= */
+/* ================= 精算 ★M-V13.1 ================= */
 const seisanPage = document.getElementById("seisanPage");
 document.getElementById("openSeisan").addEventListener("click", () => {
   closeSheets();
-  document.getElementById("seisanSearch").value = "";
-  document.getElementById("seisanSug").classList.remove("show");
+  renderSeisanAddSelect();
   renderSeisanCards();
   seisanPage.classList.add("open");
 });
@@ -2201,37 +2200,30 @@ document.getElementById("seisanBack").addEventListener("click", () => seisanPage
 function seisanAddedIds() {
   return new Set(state.seisan.map(e => e.therapistId));
 }
-function renderSeisanSuggestions() {
-  const q = document.getElementById("seisanSearch").value.trim();
-  const sug = document.getElementById("seisanSug");
-  if (q === "") { sug.classList.remove("show"); sug.innerHTML = ""; return; }
+// ★M-V13.1.1: 検索入力→サジェストではなく、タップ→プルダウン選択の2タップで追加できるようにする
+function renderSeisanAddSelect() {
+  const sel = document.getElementById("seisanAddSelect");
   const added = seisanAddedIds();
-  // その日出勤登録されているセラピストの中から検索(未出勤者は精算対象外)
-  const hits = presentTherapists().map(p => p.t)
-    .filter(t => !added.has(t.id) && therapistMatches(t.name, q))
-    .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase(), "ja"))
-    .slice(0, 8);
-  sug.innerHTML = "";
-  for (const t of hits) {
-    const b = document.createElement("button");
-    b.textContent = t.name;
-    b.addEventListener("click", () => {
-      state.seisan.push({
-        therapistId: t.id, startingCash: null, transportFee: null,
-        miscName: "", miscAmount: null,
-        rateFree: null, rateHime: null, rateHon: null,
-        deposits: {}
-      });
-      saveSeisan(state.dateKey, state.seisan);
-      document.getElementById("seisanSearch").value = "";
-      sug.classList.remove("show");
-      renderSeisanCards();
-    });
-    sug.appendChild(b);
-  }
-  sug.classList.toggle("show", sug.children.length > 0);
+  const list = presentTherapists().map(p => p.t)
+    .filter(t => !added.has(t.id))
+    .sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase(), "ja"));
+  sel.innerHTML = `<option value="">＋ セラピストを追加</option>` +
+    list.map(t => `<option value="${t.id}">${esc(t.name)}</option>`).join("");
+  sel.disabled = list.length === 0;
 }
-document.getElementById("seisanSearch").addEventListener("input", renderSeisanSuggestions);
+document.getElementById("seisanAddSelect").addEventListener("change", (e) => {
+  const id = Number(e.target.value);
+  if (!id) return;
+  state.seisan.push({
+    therapistId: id, startingCash: null, transportFee: null,
+    miscName: "", miscAmount: null,
+    rateFree: null, rateHime: null, rateHon: null,
+    deposits: {}
+  });
+  saveSeisan(state.dateKey, state.seisan);
+  renderSeisanAddSelect();
+  renderSeisanCards();
+});
 
 function seisanReservationsFor(therapistId) {
   return state.reservations
@@ -2271,8 +2263,9 @@ function buildSeisanCard(entry, idx) {
 
   const h4 = document.createElement("h4");
   const del = document.createElement("button");
-  del.className = "x-del";
+  del.className = "sz-del";
   del.textContent = "×";
+  del.setAttribute("aria-label", "このセラピストの精算を削除");
   del.addEventListener("click", () => {
     state.seisan.splice(idx, 1);
     seisanSaveEntry();
@@ -2287,10 +2280,34 @@ function buildSeisanCard(entry, idx) {
   const numInput = (val, ph) => {
     const i = document.createElement("input");
     i.inputMode = "numeric";
+    i.className = "sz-num";
     i.placeholder = ph || "0";
     if (val != null && val !== "") i.value = String(val);
     return i;
   };
+  // ★M-V13.1.1: バック率・交通費はタップ→選択のプルダウンに変更(要望対応)
+  const selectInput = (className, options, val) => {
+    const s = document.createElement("select");
+    s.className = className;
+    const curStr = (val != null && val !== "") ? String(val) : "";
+    let opts = options;
+    if (curStr !== "" && !options.some(o => o.value === curStr)) {
+      opts = [{ value: curStr, label: `${curStr}(現在の値)` }, ...options];
+    }
+    for (const o of opts) {
+      const op = document.createElement("option");
+      op.value = o.value; op.textContent = o.label;
+      s.appendChild(op);
+    }
+    s.value = curStr;
+    return s;
+  };
+  const rateOptions = [
+    { value: "", label: "未使用" },
+    { value: "50", label: "50%" }, { value: "55", label: "55%" }, { value: "60", label: "60%" },
+    { value: "65", label: "65%" }, { value: "70", label: "70%" }, { value: "75", label: "75%" }
+  ];
+  const transportOptions = [{ value: "0", label: "無" }, { value: "1000", label: "1000円" }];
   const fg = (labelText, inputEl) => {
     const d = document.createElement("div");
     d.className = "fg";
@@ -2299,47 +2316,55 @@ function buildSeisanCard(entry, idx) {
     return d;
   };
 
-  // 開始金・交通費
-  const row1 = document.createElement("div"); row1.className = "sz-row";
+  // 開始金(単独行・重要項目なので大きめ表示)
+  const rowStart = document.createElement("div"); rowStart.className = "sz-row";
   const inStart = numInput(entry.startingCash, "0");
-  const inTransport = numInput(entry.transportFee, "0");
-  row1.append(fg("開始金(円)", inStart), fg("交通費(円)", inTransport));
-  card.appendChild(row1);
+  inStart.classList.add("sz-num-lg");
+  rowStart.append(fg("開始金(円)", inStart));
+  card.appendChild(rowStart);
 
-  // 雑費(名称+金額)
-  const row2 = document.createElement("div"); row2.className = "sz-row";
+  // 雑費 名称
+  const rowMiscName = document.createElement("div"); rowMiscName.className = "sz-row";
   const inMiscName = document.createElement("input");
-  inMiscName.placeholder = "雑費の名称(任意)";
+  inMiscName.className = "sz-text";
+  inMiscName.placeholder = "例: 備品代(任意)";
   if (entry.miscName) inMiscName.value = entry.miscName;
+  rowMiscName.append(fg("雑費 名称(任意)", inMiscName));
+  card.appendChild(rowMiscName);
+
+  // 交通費(選択式)・雑費 金額
+  const row2 = document.createElement("div"); row2.className = "sz-row";
+  const inTransport = selectInput("sz-select", transportOptions, entry.transportFee);
   const inMiscAmount = numInput(entry.miscAmount, "0");
-  row2.append(fg("雑費 名称", inMiscName), fg("雑費 金額(円)", inMiscAmount));
+  row2.append(fg("交通費", inTransport), fg("雑費 金額(円)", inMiscAmount));
   card.appendChild(row2);
 
-  // バック率
-  const row3 = document.createElement("div"); row3.className = "sz-row";
-  const inRateFree = numInput(entry.rateFree, "%");
-  const inRateHime = numInput(entry.rateHime, "%");
-  const inRateHon = numInput(entry.rateHon, "%");
-  row3.append(fg("バック率 フリー(%)", inRateFree), fg("バック率 姫(%)", inRateHime), fg("バック率 本(%)", inRateHon));
+  // バック率(選択式・3列シンプル表示)
+  const row3 = document.createElement("div"); row3.className = "sz-row sz-row-3";
+  const inRateFree = selectInput("sz-select", rateOptions, entry.rateFree);
+  const inRateHime = selectInput("sz-select", rateOptions, entry.rateHime);
+  const inRateHon = selectInput("sz-select", rateOptions, entry.rateHon);
+  row3.append(fg("フリー(%)", inRateFree), fg("姫(%)", inRateHime), fg("本(%)", inRateHon));
   card.appendChild(row3);
-  const note = document.createElement("p");
-  note.className = "sz-rate-note";
-  note.textContent = "そのセラピストが使わない種別は空欄のままでOKです(その種別の予約が無ければ計算に影響しません)。";
-  card.appendChild(note);
 
   // 予約一覧+預かり金入力
   const reservations = seisanReservationsFor(entry.therapistId);
-  const resWrap = document.createElement("div");
+  const resSection = document.createElement("div");
+  resSection.className = "sz-section";
+  const resTitle = document.createElement("div");
+  resTitle.className = "sz-section-title";
+  resTitle.textContent = "本日の予約・預かり金";
+  resSection.appendChild(resTitle);
   if (reservations.length === 0) {
     const p = document.createElement("div");
     p.className = "sz-empty-res";
     p.textContent = "本日のこのセラピストの予約はありません。";
-    resWrap.appendChild(p);
+    resSection.appendChild(p);
   } else {
     const head = document.createElement("div");
     head.className = "sz-res-head";
     head.innerHTML = `<span style="flex:1">予約</span><span style="width:88px;text-align:center">預かり金</span>`;
-    resWrap.appendChild(head);
+    resSection.appendChild(head);
     for (const r of reservations) {
       const row = document.createElement("div");
       row.className = "sz-res-row";
@@ -2363,16 +2388,16 @@ function buildSeisanCard(entry, idx) {
         updateSeisanResult(entry, card);
       });
       row.append(info, depInput);
-      resWrap.appendChild(row);
+      resSection.appendChild(row);
 
       const expectLine = document.createElement("div");
       expectLine.className = "sz-r-expect";
       expectLine.dataset.resId = r.id;
       expectLine.style.display = "none";
-      resWrap.appendChild(expectLine);
+      resSection.appendChild(expectLine);
     }
   }
-  card.appendChild(resWrap);
+  card.appendChild(resSection);
 
   // 入力変更で保存+再計算
   const bind = (el, key, isText) => {
@@ -2460,7 +2485,7 @@ function updateSeisanResult(entry, card) {
   html += `単数四捨五入後(本日の報酬) → <b>${summary.womanRounded.toLocaleString()}円</b><br>`;
   html += `預かり金合計 → ${summary.depositTotal.toLocaleString()}円<br>`;
   html += `店落ち → ${summary.shopCutRounded.toLocaleString()}円<br>`;
-  html += `釣り銭(開始金+店落ち) → <b>${summary.change.toLocaleString()}円</b>`;
+  html += `<span class="sz-final">釣り銭(開始金+店落ち) → ${summary.change.toLocaleString()}円</span>`;
   if (alert2) {
     html += `<div class="sz-alert">⚠ 女性給が想定より低くなっています。バック率の入力を確認してください。</div>`;
   }
@@ -2509,7 +2534,7 @@ function loadSettingsIntoForm() {
   const npWrap = document.getElementById("sNomPhraseRows");
   npWrap.innerHTML = "";
   for (const m of sf.nomPhrases) addNomPhraseRow(m.input, m.output);
-  // ★M-V13: 精算設定
+  // ★M-V13.1: 精算設定
   document.getElementById("szRoundWoman").value = CFG.seisan.roundBaseWoman;
   document.getElementById("szRoundShop").value = CFG.seisan.roundBaseShop;
   document.getElementById("szAlertMode").value = CFG.seisan.alertMode;
@@ -2571,7 +2596,7 @@ document.getElementById("sSendTplReset").addEventListener("click", () => {
     document.getElementById("sSendTemplate").value = DEFAULT_SEND_FORMAT.therapistTemplate;
   }
 });
-document.getElementById("szMsgReset").addEventListener("click", () => { // ★M-V13
+document.getElementById("szMsgReset").addEventListener("click", () => { // ★M-V13.1
   if (confirm("精算送信文のヘッダー/フッターを初期値に戻しますか？")) {
     document.getElementById("szMsgHeader").value = DEFAULT_SEISAN_FORMAT.header;
     document.getElementById("szMsgFooter").value = DEFAULT_SEISAN_FORMAT.footer;
@@ -2660,7 +2685,7 @@ document.getElementById("setSave").addEventListener("click", () => {
   let sendTemplate = document.getElementById("sSendTemplate").value.replace(/\r\n/g, "\n");
   if (!sendTemplate.trim()) sendTemplate = DEFAULT_SEND_FORMAT.therapistTemplate;
 
-  // ★M-V13: 精算設定
+  // ★M-V13.1: 精算設定
   const roundWoman = parseInt(document.getElementById("szRoundWoman").value, 10);
   const roundShop = parseInt(document.getElementById("szRoundShop").value, 10);
   const alertMode = document.getElementById("szAlertMode").value === "minRate" ? "minRate" : "fixed";
@@ -2682,7 +2707,7 @@ document.getElementById("setSave").addEventListener("click", () => {
   saveSettings(s);
   // ★M-V12: 送信フォーマットの保存(PCと同一のJSON構造)
   saveSendFormat({ therapistTemplate: sendTemplate, attrMap: attrRules, nomPhrases });
-  saveSeisanFormat({ header: seisanHeader, footer: seisanFooter }); // ★M-V13
+  saveSeisanFormat({ header: seisanHeader, footer: seisanFooter }); // ★M-V13.1
   CFG = loadSettings();
   // 現在の担当がリストから消えていたらリセット
   if (loadCurrentStaff() && !CFG.staffs.includes(loadCurrentStaff())) saveCurrentStaff("");

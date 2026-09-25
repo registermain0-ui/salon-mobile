@@ -8,7 +8,7 @@
 <meta name="theme-color" content="#2c5fb3">
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="./icons/icon-180.png">
-<title>サロン受付 M-V13</title>
+<title>サロン受付 M-V13.1</title>
 <style>
   :root{
     --resA-fill:#EEE8FA; --resA-border:#8854D0;
@@ -107,25 +107,35 @@
   .att-row input.err{border-color:#d32f2f}
   .att-entry{margin-bottom:8px}
   .att-sns{width:100%;border:1px solid #ccc;border-radius:6px;padding:7px 8px;font-size:12.5px;color:#444;background:#fbfbfb}
-  /* ★M-V13: 精算画面 */
-  .sz-card{border:1px solid #ddd;border-radius:10px;padding:12px;margin-bottom:14px;background:#fafafa}
-  .sz-card h4{margin:0 0 10px;font-size:15px;display:flex;justify-content:space-between;align-items:center}
-  .sz-card h4 .x-del{margin-left:8px}
-  .sz-row{display:flex;gap:8px;margin-bottom:8px}
+  /* ★M-V13.1.1: 精算画面(デザイン刷新) */
+  .sz-head{background:#fff}
+  .sz-body{background:#f2f4f7;padding:14px}
+  .sz-add-select{display:block;width:100%;box-sizing:border-box;border:1.5px dashed var(--accent);border-radius:12px;background:#fff;color:var(--accent);font-weight:700;font-size:15px;text-align:center;text-align-last:center;padding:14px 10px;margin-bottom:16px;appearance:none;-webkit-appearance:none}
+  .sz-card{border:none;border-left:5px solid var(--accent);border-radius:14px;padding:16px;margin-bottom:16px;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.07)}
+  .sz-card h4{margin:0 0 14px;font-size:17px;font-weight:700;display:flex;justify-content:space-between;align-items:center;padding-bottom:10px;border-bottom:1px solid #f0f0f0}
+  .sz-del{width:30px;height:30px;flex:none;border:none;border-radius:50%;background:#f2f2f2;color:#888;font-size:16px;line-height:1}
+  .sz-row{display:flex;gap:10px;margin-bottom:12px}
   .sz-row .fg{flex:1;margin-bottom:0}
-  .sz-rate-note{font-size:11px;color:var(--sub);margin:-4px 0 8px}
-  .sz-res-head{display:flex;gap:6px;font-size:11px;color:var(--sub);padding:2px 0;border-bottom:1px solid #eee}
-  .sz-res-row{display:flex;gap:6px;align-items:center;padding:6px 0;border-bottom:1px solid #eee;font-size:13px}
+  .sz-row .fg label{font-size:12px;color:var(--sub);margin-bottom:5px}
+  .sz-row-3 .fg label{text-align:center}
+  .sz-num,.sz-text,.sz-select{width:100%;box-sizing:border-box;border:1px solid #ccc;border-radius:10px;padding:11px 10px;font-size:16px;background:#fff}
+  .sz-num-lg{font-size:19px;font-weight:700;color:var(--ink)}
+  .sz-select{appearance:none;-webkit-appearance:none;text-align:center;text-align-last:center;font-weight:600;color:var(--ink);background-image:linear-gradient(45deg,transparent 50%,var(--sub) 50%),linear-gradient(135deg,var(--sub) 50%,transparent 50%);background-position:calc(50% + 34px) center,calc(50% + 39px) center;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+  .sz-section{margin-top:4px}
+  .sz-section-title{font-size:12px;font-weight:700;color:var(--accent);margin:14px 0 8px;padding-top:10px;border-top:1px solid #f0f0f0}
+  .sz-res-head{display:flex;gap:6px;font-size:11px;color:var(--sub);padding:2px 0}
+  .sz-res-row{display:flex;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid #f3f3f3;font-size:13px}
   .sz-res-row .sz-r-info{flex:1;min-width:0}
-  .sz-res-row .sz-r-dep{width:88px;border:1px solid #bbb;border-radius:6px;padding:6px 4px;font-size:13px;text-align:right}
+  .sz-res-row .sz-r-dep{width:92px;border:1px solid #bbb;border-radius:8px;padding:9px 6px;font-size:14px;text-align:right}
   .sz-res-row .sz-r-dep.mismatch{border-color:#d32f2f;background:#fff0f0}
-  .sz-r-expect{font-size:10px;color:#d32f2f;display:block}
+  .sz-r-expect{font-size:10px;color:#d32f2f;display:block;margin:-4px 0 4px;text-align:right}
   .sz-empty-res{font-size:12px;color:var(--sub);padding:8px 0}
-  .sz-result{margin-top:10px;padding:10px;background:#fff;border:1px solid #eee;border-radius:8px;font-size:13px;line-height:1.9}
+  .sz-result{margin-top:14px;padding:14px;background:#f7f9fc;border:1px solid #e8ecf3;border-radius:12px;font-size:13.5px;line-height:2}
   .sz-result b{font-size:15px}
-  .sz-alert{color:#d32f2f;font-weight:bold;margin-top:4px}
+  .sz-result .sz-final{font-size:17px;color:var(--accent);font-weight:700}
+  .sz-alert{color:#d32f2f;font-weight:bold;margin-top:6px}
   .sz-err{color:#d32f2f;font-size:12px;margin-top:4px}
-  .sz-btns{display:flex;gap:8px;margin-top:10px}
+  .sz-btns{display:flex;gap:8px;margin-top:12px}
   .sz-btns button{flex:1}
   .sheet-foot{flex:none;display:flex;gap:10px;padding:10px 14px;border-top:1px solid #ddd}
   .sheet-foot .sub{border:1px solid #bbb;background:#fff;border-radius:8px;padding:11px 14px;font-size:14px}
@@ -557,7 +567,7 @@
     <div id="sNomPhraseRows"></div>
     <button class="ho-add" id="sNomPhraseAdd" type="button">+ 文言を追加</button>
 
-    <!-- ★M-V13: 精算設定 -->
+    <!-- ★M-V13.1: 精算設定 -->
     <h3 class="set-h">精算設定</h3>
     <div class="fg-row">
       <div class="fg"><label>女性給 丸め基準値(円)</label><input id="szRoundWoman" inputmode="numeric"></div>
@@ -646,19 +656,16 @@
   <button id="updBtn">更新</button>
 </div>
 
-<!-- 精算(全画面) ★M-V13 -->
+<!-- 精算(全画面) ★M-V13.1 -->
 <div class="form-page" id="seisanPage">
-  <div class="form-head">
+  <div class="form-head sz-head">
     <button class="back" id="seisanBack">‹ 戻る</button>
     <h2>精算</h2>
   </div>
-  <div class="form-body">
-    <div class="att-search-wrap">
-      <input id="seisanSearch" placeholder="セラピスト名で検索して追加" autocomplete="off">
-      <div class="att-sug" id="seisanSug"></div>
-    </div>
+  <div class="form-body sz-body">
+    <select id="seisanAddSelect" class="sz-add-select"><option value="">＋ セラピストを追加</option></select>
     <div id="seisanCards"></div>
-    <div class="att-empty" id="seisanEmpty">上の検索からセラピストを追加してください。</div>
+    <div class="att-empty" id="seisanEmpty">上のプルダウンからセラピストを追加してください。</div>
   </div>
 </div>
 
