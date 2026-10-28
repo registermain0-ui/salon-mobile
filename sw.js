@@ -1,5 +1,5 @@
-/* サロン受付 M-V13.5 Service Worker: 完全オフライン動作用 */
-const CACHE = "este-mobile-mv13-6";
+/* サロン受付 V-26 Service Worker: 完全オフライン動作用 */
+const CACHE = "este-mobile-v26";
 const ASSETS = [
   "./",
   "./index.html",
@@ -11,7 +11,14 @@ const ASSETS = [
 ];
 self.addEventListener("install", e => {
   // 自動skipWaitingはやめ、ユーザーの「更新」ボタンで切替える(作業中の強制リロード防止)
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
+  // ★V-26: 新バージョンのファイルは必ずサーバーから取り直す(cache:"reload")。
+  //  addAll だと端末のHTTPキャッシュ(GitHub Pagesは約10分)から古いファイルを保存してしまい、
+  //  更新したのに古い画面のままになる不具合があったため。
+  e.waitUntil(caches.open(CACHE).then(c => Promise.all(ASSETS.map(async url => {
+    const res = await fetch(new Request(url, { cache: "reload" }));
+    if (!res || !res.ok) throw new Error("更新ファイルの取得に失敗: " + url);
+    await c.put(url, res);
+  }))));
 });
 self.addEventListener("message", e => {
   if (e.data && e.data.type === "SKIP_WAITING") self.skipWaiting();

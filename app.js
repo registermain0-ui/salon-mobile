@@ -14,7 +14,7 @@ const COLUMNS       = (24 * 60) / MINUTE_STEP; // 144
 const COURSES       = [60, 80, 100, 120];
 const SEARCH_COURSES = [60, 80, 100, 120, 140, 160, 180]; // 空枠検索用
 
-const APP_VERSION = "M-V13.5";
+const APP_VERSION = "V-26";
 
 /* ================= 純粋ロジック(移植) ================= */
 
@@ -75,6 +75,23 @@ function mapNowToBizMin(now) {
   let h = d.getHours();
   if (h < CUTOFF_HOUR) h += 24;
   return h * 60 + mm10;
+}
+
+// ★V-25: 現在時刻を営業分で返す(分単位・丸めなし)。0:00〜5:59は+24時間(24〜29時台)
+function nowBizMinExact(now) {
+  const d = new Date(now);
+  let h = d.getHours();
+  if (h < CUTOFF_HOUR) h += 24;
+  return h * 60 + d.getMinutes();
+}
+
+// ★V-24/V-25: 予約の開始時刻が「現在時刻(分単位)+準備時間」より前か判定(今日の営業日の予約のみ対象)
+// 例: 現在17:28・準備15分 → 17:43より前の開始時刻は警告
+// 戻り: {tooSoon:boolean, limitMin:number|null}(limitMin=現在時刻+準備時間)
+function checkStartTooSoon(dateKey, startMin, now, prep) {
+  if (dateKey !== getBusinessDate(now)) return { tooSoon: false, limitMin: null };
+  const limitMin = nowBizMinExact(now) + (Number.isFinite(prep) ? prep : 0);
+  return { tooSoon: startMin < limitMin, limitMin };
 }
 
 // 選択日の初期基準時刻(分)。PC: ComputeDefaultBaseTimeForSelectedDate + RoundDownTo5
@@ -747,7 +764,7 @@ function buildSeisanMessage(therapistName, summary, fmt) {
 /* ================= Node テスト用エクスポート ================= */
 if (typeof module !== "undefined") {
   module.exports = {
-    parseBizTime, fmtBiz, fmtNormal, getBusinessDate, mapNowToBizMin, defaultBaseMin,
+    parseBizTime, fmtBiz, fmtNormal, getBusinessDate, mapNowToBizMin, defaultBaseMin, nowBizMinExact, checkStartTooSoon,
     parseIntervalMinutes, tryFindEarliestSlot, maxText, sanName, padName,
     calcEnd, calcTotal, findOverlaps, isOverShiftEnd, holdCellsToRanges, normAttendance,
     reportFormatLine, buildReport, levenshtein, therapistMatches, buildTherapistMemo,
@@ -1464,6 +1481,21 @@ function renderShortest() {
   if (fm.footer && fm.footer.trim()) { lines.push(""); lines.push(fm.footer); }
   document.getElementById("snsText").value = lines.join("\n");
 }
+// ★V-24: アプリがバックグラウンドから戻った時、最短取得を開いたままなら基準時刻を現在時刻に取り直す
+//  - 今日の営業日を表示している時だけ動作(別の日付を見ている時は何もしない)
+//  - 基準時刻を手入力していても上書きする(仕様)
+function refreshShortestOnResume() {
+  if (!shortSheet.classList.contains("open")) return;
+  const now = new Date();
+  if (state.dateKey !== getBusinessDate(now)) return;
+  state.shortestBaseMin = defaultBaseMin(state.dateKey, now, CFG.calc.roundTo);
+  document.getElementById("baseTime").value = fmtBiz(state.shortestBaseMin);
+  renderShortest();
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") refreshShortestOnResume();
+});
+window.addEventListener("pageshow", e => { if (e.persisted) refreshShortestOnResume(); });
 document.getElementById("snsCopy").addEventListener("click", async () => {
   const txt = document.getElementById("snsText").value;
   try { await navigator.clipboard.writeText(txt); toast("コピーしました"); }
@@ -1812,6 +1844,13 @@ document.getElementById("fSave").addEventListener("click", () => {
   }
   if (isOverShiftEnd(state.attendance, r)) {
     if (!confirm("終了時間が退勤時刻を超過しますが、よろしいですか？")) return;
+  }
+  // ★V-24/V-25: 開始時刻が「現在時刻(分単位)+準備時間」より前なら確認(新規登録、または開始時刻を変更した編集のみ)
+  if (!old || old.start !== startMin) {
+    const chk = checkStartTooSoon(state.dateKey, startMin, new Date(), CFG.calc.prep);
+    if (chk.tooSoon) {
+      if (!confirm(`開始時刻（${fmtBiz(startMin)}）が、現在時刻＋準備時間${CFG.calc.prep}分（${fmtBiz(chk.limitMin)}）より前になっています。\n\nこのまま登録しますか？`)) return;
+    }
   }
 
   if (formCtx.editId) {
@@ -3083,8 +3122,21 @@ setTimeout(autoReceive, 300);
 }
 
 // Service Worker 登録(オフライン対応)+新バージョン検知
+// ★V-26: アプリが前面に戻った時にも更新確認を行う(ホーム画面アプリは開き直さないと確認されないため)
+let swReg = null, lastSwCheck = 0;
+function checkForUpdate() {
+  if (!swReg) return;
+  const now = Date.now();
+  if (now - lastSwCheck < 30000) return; // 30秒以内の連続確認は省略
+  lastSwCheck = now;
+  swReg.update().catch(() => {});        // オフライン時などは何もしない
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") checkForUpdate();
+});
 if ("serviceWorker" in navigator) {
-  navigator.serviceWorker.register("./sw.js").then(reg => {
+  navigator.serviceWorker.register("./sw.js", { updateViaCache: "none" }).then(reg => {
+    swReg = reg;
     function watch(worker) {
       worker.addEventListener("statechange", () => {
         // 既存ページを制御中に新SWがinstalled = 新バージョンあり
